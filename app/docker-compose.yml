@@ -1,0 +1,19 @@
+# The app. This is the ONLY thing the user brings up by hand.
+name: p0-monitoring-app
+
+services:
+  app:
+    build: .
+    container_name: p0m-app
+    restart: unless-stopped
+    volumes:
+      # the socket: to discover containers and bring the stack up
+      - /var/run/docker.sock:/var/run/docker.sock
+      # host /sys: for the capability detector (RAPL, cgroups)
+      - /sys:/host/sys:ro
+      # state and generated files. Bind-mounted from a HOST path, because the stack
+      # containers will mount that same path.
+      - /opt/p0-monitoring:/data
+    environment:
+      DATA_DIR_HOST: /opt/p0-monitoring
+    ports: ["8000:8000"]

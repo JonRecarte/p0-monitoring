@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+
+# Internal design notes: they contain infrastructure details of a private testbed
+# (addresses, credentials, references to unrelated internal systems). Kept out of
+# the public repository on purpose.
+CLAUDE.md
+DISENO.md
+DISENO_APP.md
+
+# Throwaway containers used to test the app against something. Not part of the
+# product: whoever installs this already has containers of their own.
+example-workload/

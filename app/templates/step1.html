@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block title %}Environment{% endblock %}{% block body %}
+<h1>Environment</h1>
+<form method="post"><div class="panel">
+<label><span>Environment</span>
+  <select name="environment">
+    <option value="docker" {% if s.environment=='docker' %}selected{% endif %}>Docker host</option>
+    <option value="kubernetes" disabled>Kubernetes clusters — not yet</option>
+  </select>
+</label>
+<label><span>Machine name</span>
+  <input type="text" name="machine" value="{{ s.machine or '' }}" placeholder="sim-server-01" required>
+</label>
+<div class="actions"><button type="submit">Continue</button></div>
+</div></form>{% endblock %}

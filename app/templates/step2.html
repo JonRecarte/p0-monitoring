@@ -1,0 +1,30 @@
+{% extends "base.html" %}{% block title %}Capabilities{% endblock %}{% block body %}
+<h1>Capabilities</h1>
+
+{% if report.blocker %}
+<div class="notice bad"><p style="color:inherit;margin:0">{{ report.blocker }}</p></div>
+{% endif %}
+
+<div class="panel"><table>
+<tr><th>Signal</th><th>Available</th><th>Measured by</th><th>Detail</th></tr>
+{% for name,sig in report.signals.items() %}
+<tr><td class="lead"><b>{{ name }}</b></td>
+  <td>{% if sig.available %}<span class="yes">yes</span>{% else %}<span class="no">no</span>{% endif %}</td>
+  <td class="mono">{{ sig.measured_by }}</td>
+  <td>{% if sig.source %}<code>{{ sig.source }}</code>{% if sig.reason %} · {% endif %}{% endif %}{{ sig.reason or '' }}</td></tr>
+{% endfor %}
+</table></div>
+
+<div class="panel"><table>
+<tr><td>Docker</td><td class="mono">{% if report.docker.reachable %}<span class="yes">{{ report.docker.version }}</span>{% else %}<span class="no">{{ report.docker.version }}</span>{% endif %}</td></tr>
+<tr><td>Architecture · kernel</td><td class="mono">{{ report.architecture }} · {{ report.kernel }}</td></tr>
+<tr><td>cgroups v2</td><td>{% if report.cgroup_v2 %}<span class="yes">yes</span>{% else %}<span class="no">no</span>{% endif %}</td></tr>
+<tr><td>Virtualised</td><td>{{ 'yes' if report.virtualised else 'no' }}</td></tr>
+<tr><td>Storage driver</td><td class="mono">{{ report.storage_driver }}{% if report.uses_snapshotter %} <span class="no">containerd snapshotter</span>{% endif %}</td></tr>
+<tr><td>RAPL</td><td>{% if report.rapl.available %}<span class="yes">yes</span> <span class="mono">{{ report.rapl.path }}</span>{% else %}<span class="wn">no</span> · {{ report.rapl.reason }}{% endif %}</td></tr>
+</table></div>
+
+<form method="post"><div class="actions">
+<button type="submit">Continue</button>
+<a href="/" style="color:var(--soft)">back</a>
+</div></form>{% endblock %}

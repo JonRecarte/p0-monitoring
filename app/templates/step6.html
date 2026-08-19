@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block title %}Done{% endblock %}{% block body %}
+{% if ok %}<h1>Installed</h1>{% else %}<h1>Failed</h1>{% endif %}
+
+<div class="panel"><table>
+<tr><td>Grafana</td><td><a href="http://{{ request.host.split(':')[0] }}:3000" target="_blank">:3000</a> · admin / admin</td></tr>
+<tr><td>Prometheus</td><td><a href="http://{{ request.host.split(':')[0] }}:9090" target="_blank">:9090</a></td></tr>
+<tr><td>Monitoring</td><td class="lead">{{ result.matching|length }} of {{ result.total_containers }} containers</td></tr>
+<tr><td>Probes</td><td>{{ result.probes|length }}</td></tr>
+</table></div>
+
+<div class="panel"><table>
+<tr><th>Generated files</th></tr>
+{% for f in result.files %}<tr><td class="mono">{{ f }}</td></tr>{% endfor %}
+</table></div>
+
+{% if output %}<pre>{{ output }}</pre>{% endif %}
+<div class="actions">
+  <a href="/status"><button type="button">Status</button></a>
+  <a href="/discover"><button type="button" class="sec">Add more containers</button></a>
+</div>
+{% endblock %}

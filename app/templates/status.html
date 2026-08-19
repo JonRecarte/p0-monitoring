@@ -1,0 +1,45 @@
+{% extends "base.html" %}{% block title %}Status{% endblock %}{% block body %}
+<h1>Status</h1>
+
+<div class="panel"><div class="actions" style="margin:0">
+  <a href="/discover"><button type="button">Add or remove containers</button></a>
+</div></div>
+
+{% if notes %}
+<div class="panel"><table>
+<tr><th>Last regeneration</th></tr>
+{% for n in notes %}<tr><td class="mono">{{ n }}</td></tr>{% endfor %}
+</table></div>
+{% endif %}
+
+<div class="panel"><table>
+<tr><th>Stack piece</th><th>State</th></tr>
+{% for name,st in stack.items() %}
+<tr><td class="mono lead">{{ name }}</td>
+  <td>{% if st=='running' %}<span class="yes">running</span>
+      {% elif st=='absent' %}<span class="no">absent</span>
+      {% else %}<span class="wn">{{ st }}</span>{% endif %}</td></tr>
+{% endfor %}
+</table></div>
+
+<div class="panel"><table>
+<tr><th>Signal</th><th>Available</th><th>Detail</th></tr>
+{% for name,sig in report.signals.items() %}
+<tr><td class="lead">{{ name }}</td>
+  <td>{% if sig.available %}<span class="yes">yes</span>{% if sig.source %} <code>{{ sig.source }}</code>{% endif %}{% else %}<span class="no">no</span>{% endif %}</td>
+  <td>{{ sig.reason or '' }}</td></tr>
+{% endfor %}
+</table></div>
+
+<div class="panel">
+<table><tr><th>Target</th><th>Project</th><th>App</th><th>Identity</th></tr>
+{% for c in matching %}
+<tr><td class="mono lead">{{ c.target }}</td><td class="mono">{{ c.project }}</td>
+  <td class="mono">{{ c.app or '—' }}</td>
+  <td>{% if c.identity_source=='compose' %}<span class="yes">stable</span>{% else %}<span class="wn">name</span>{% endif %}</td></tr>
+{% endfor %}
+{% if not matching %}<tr><td colspan="4">no targets</td></tr>{% endif %}</table>
+<p style="margin:14px 0 0">Rule{{ 's' if s.rules|length > 1 }}:
+{% for r in s.rules %}<code>{{ r.type }}: {% if r.key %}{{ r.key }}={% endif %}{{ r.value }}</code>{% if not loop.last %} · {% endif %}{% else %}<span class="no">none</span>{% endfor %}</p>
+</div>
+{% endblock %}

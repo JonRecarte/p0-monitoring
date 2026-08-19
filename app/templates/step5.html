@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% block title %}Confirm{% endblock %}{% block body %}
+<h1>Confirm</h1>
+<div class="panel"><table>
+<tr><td>Machine</td><td class="lead mono">{{ s.machine }}</td></tr>
+<tr><td>Environment</td><td class="mono">{{ s.environment }}</td></tr>
+<tr><td>Membership rule{{ 's' if s.rules|length > 1 }}</td><td class="mono lead">
+  {% for r in s.rules %}{{ r.type }}: {% if r.key %}{{ r.key }}={% endif %}{{ r.value }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+  {% if not s.rules %}<span class="no">none</span>{% endif %}</td></tr>
+<tr><td>Matching now</td><td class="lead">{{ matching|length }} ·
+  {% for c in matching %}<code>{{ c.target }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+<tr><td>QoS probes</td><td>{{ probes|length }}{% if probes %} · port {{ probes[0].port }}{{ probes[0].path }}{% endif %}</td></tr>
+<tr><td>Retention</td><td>7 days · 8 GB cap</td></tr>
+<tr><td>Privileged containers</td><td class="mono">cadvisor, kepler</td></tr>
+<tr><td>Host paths mounted</td><td class="mono">/sys, /proc, /var/lib/docker (read-only)</td></tr>
+</table></div>
+
+<div class="panel"><table>
+<tr><th>Signal</th><th>Available</th><th>Detail</th></tr>
+{% for name,sig in (s.capabilities or {}).items() %}
+<tr><td class="lead">{{ name }}</td>
+  <td>{% if sig.available %}<span class="yes">yes</span>{% if sig.source %} <code>{{ sig.source }}</code>{% endif %}{% else %}<span class="no">no</span>{% endif %}</td>
+  <td>{{ sig.reason or '' }}</td></tr>
+{% endfor %}
+</table></div>
+
+<form method="post" action="/provision"><div class="actions">
+<button type="submit">Install</button>
+<a href="/qos" style="color:var(--soft)">back</a>
+</div></form>{% endblock %}

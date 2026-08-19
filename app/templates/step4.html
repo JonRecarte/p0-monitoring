@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% block title %}QoS{% endblock %}{% block body %}
+<h1>QoS probe</h1>
+<form method="post"><div class="panel">
+<table>
+<tr><td>Targets to probe</td><td class="lead">{{ matching|length }} ·
+  {% for c in matching %}<code>{{ c.target }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+</table>
+<label style="margin-top:16px"><span>Port</span>
+  <input type="number" name="port" value="{{ port }}" min="1" max="65535">
+</label>
+<label><span>HTTP path</span><input type="text" name="path" value="{{ path }}" placeholder="/health"></label>
+<div class="actions">
+  <button type="submit">Continue</button>
+  <button type="submit" name="skip" value="1" class="sec">Skip QoS</button>
+</div>
+</div></form>{% endblock %}

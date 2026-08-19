@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzE0MTgxZSIvPjxwYXRoIGQ9Ik00IDIwaDQuNWwzLTkuNSA0IDE1IDMtOC41SDI4IiBmaWxsPSJub25lIiBzdHJva2U9IiNlOWE5NGEiIHN0cm9rZS13aWR0aD0iMi42IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=">
+<title>{% block title %}Monitoring{% endblock %} · p0-monitoring</title>
+<style>
+:root{--ink:#16191f;--soft:#5b6572;--line:#dfe3e8;--bg:#f7f8fa;--panel:#fff;
+      --accent:#9a5b08;--ok:#0d6152;--bad:#9e2f24;--warn:#8a5a05}
+@media(prefers-color-scheme:dark){:root{--ink:#e6eaf0;--soft:#a3aebc;--line:#262d36;
+      --bg:#0f1216;--panel:#151a20;--accent:#e9a94a;--ok:#4fc0a8;--bad:#e2705f;--warn:#d9a03f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:32px 20px 80px}
+h1{font-size:26px;letter-spacing:-.02em;margin:0 0 6px}
+h2{font-size:18px;margin:32px 0 10px}
+p{color:var(--soft);margin:0 0 16px} p.lead{color:var(--ink)}
+.steps{display:flex;gap:8px;flex-wrap:wrap;font:12px/1 ui-monospace,monospace;
+       letter-spacing:.08em;text-transform:uppercase;color:var(--soft);margin:0 0 28px;padding:0 0 14px;
+       border-bottom:1px solid var(--line)}
+.steps b{color:var(--accent)}
+.steps a{color:var(--soft);text-decoration:none}
+.steps a:hover{color:var(--accent)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:20px;margin:0 0 18px}
+table{width:100%;border-collapse:collapse;font-size:14.5px}
+th{text-align:left;font:11px/1 ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;
+   color:var(--soft);padding:0 12px 8px 0;border-bottom:1px solid var(--ink)}
+td{padding:10px 12px 10px 0;border-bottom:1px solid var(--line);vertical-align:top}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em}
+.yes{color:var(--ok);font-weight:600} .no{color:var(--bad);font-weight:600}
+.wn{color:var(--warn);font-weight:600}
+label{display:block;margin:0 0 14px}
+label span{display:block;font:12px/1.6 ui-monospace,monospace;letter-spacing:.06em;
+           text-transform:uppercase;color:var(--soft);margin-bottom:5px}
+input[type=text],input[type=number],select{width:100%;max-width:420px;padding:9px 11px;
+  border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:15px system-ui}
+button{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:11px 22px;
+  font:600 15px system-ui;cursor:pointer}
+button.sec{background:transparent;color:var(--soft);border:1px solid var(--line)}
+button:hover{filter:brightness(1.08)}
+.notice{border-left:3px solid var(--warn);background:color-mix(in srgb,var(--warn) 8%,transparent);
+        padding:14px 16px;border-radius:0 6px 6px 0;margin:0 0 18px}
+.notice.bad{border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,transparent)}
+.actions{display:flex;gap:10px;align-items:center;margin-top:22px}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:14px;
+    overflow-x:auto;font-size:12.5px;max-height:340px}
+a{color:var(--accent)}
+</style></head><body><div class="wrap">
+<div class="steps">
+{% for n,t,href in [(1,'environment','/'),(2,'capabilities','/capabilities'),(3,'containers','/discover'),
+                    (4,'qos','/qos'),(5,'confirm','/confirm')] %}
+  {% if n==step %}<b>{{n}}·{{t}}</b>
+  {% else %}<a href="{{ href }}">{{n}}·{{t}}</a>{% endif %}
+{% endfor %}
+  {% if step==6 %}<b>6·done</b>{% endif %}
+  {# no status link during the first install: nothing to look at yet #}
+  {% if installed %}<span style="margin-left:auto"><a href="/status"><b>status</b></a></span>{% endif %}
+</div>
+{% block body %}{% endblock %}
+</div></body></html>
