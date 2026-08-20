@@ -15,16 +15,6 @@
 
 ---
 
-A monitoring stack is not hard to run. It is tedious to *wire up*: a collector here, a
-scrape config there, an exporter that does not know your container's name, a dashboard with
-cluster names typed in by hand. Doing that once takes an afternoon. Doing it for every new
-project takes an afternoon every time.
-
-**p0-monitoring does the wiring.** You run one container, answer a handful of questions in a
-browser, and it generates and launches a complete Prometheus + Grafana stack configured for
-*your* containers — including the parts that are genuinely fiddly, like giving the energy
-collector the container names it cannot discover on its own.
-
 <!--
   Add screenshots here once you have them. Suggested:
   ![Wizard](docs/wizard.png)
