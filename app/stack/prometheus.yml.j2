@@ -15,19 +15,34 @@ scrape_configs:
       - source_labels: [id]
         regex: "/"
         action: drop
-      # Dimension translation, done at collection time
-      - source_labels: [container_label_com_docker_compose_project]
+      # Dimension translation, done at collection time.
+      # Compose identity only counts when Compose actually created the container:
+      # project and service are baked into the image it builds, so anything started
+      # from that image inherits them and would claim an identity that is not its own.
+      # container-number is only ever set by Compose itself, so it is the gate.
+      - source_labels: [container_label_com_docker_compose_container_number,
+                        container_label_com_docker_compose_project]
+        separator: ";"
+        regex: ".+;(.+)"
         target_label: namespace
-        regex: (.+)
-      - source_labels: [container_label_com_docker_compose_service]
+        replacement: "$1"
+      - source_labels: [container_label_com_docker_compose_container_number,
+                        container_label_com_docker_compose_service]
+        separator: ";"
+        regex: ".+;(.+)"
         target_label: pod
-        regex: (.+)
+        replacement: "$1"
+      # everything else is identified by its own container name
       - source_labels: [pod, name]
         separator: ";"
         regex: ";(.+)"
         target_label: pod
         replacement: "$1"
-      - regex: "container_label_com_docker_compose_(project|service)"
+      - source_labels: [namespace]
+        regex: "^$"
+        target_label: namespace
+        replacement: "default"
+      - regex: "container_label_com_docker_compose_(project|service|container_number)"
         action: labeldrop
 
   # --- host ---

@@ -2,7 +2,7 @@
 
 Everything it produces is DERIVED. It can be deleted and regenerated without losing anything.
 """
-import os, re, shutil, subprocess
+import os, re, shutil, subprocess, threading
 
 from jinja2 import Environment, FileSystemLoader
 
@@ -19,8 +19,15 @@ TEXTFILE_DIR = os.path.join(DATA_DIR, "textfile")
 _env = Environment(loader=FileSystemLoader(STACK_TEMPLATES), keep_trailing_newline=True,
                    trim_blocks=True, lstrip_blocks=True)
 
+# The wizard and the reconciler write the same files and restart the same containers.
+# Everything that does either takes this lock.
+LOCK = threading.RLock()
+
 # Docker labels that travel into the metrics. Each one added here multiplies series.
-BASE_LABELS = ["com.docker.compose.project", "com.docker.compose.service"]
+# container-number travels too: it is what tells a real Compose container from one that
+# merely inherited project/service from a Compose-built image.
+BASE_LABELS = ["com.docker.compose.project", "com.docker.compose.service",
+               "com.docker.compose.container-number"]
 
 
 def _write(path, content):
@@ -49,12 +56,17 @@ def probes_for(state, matching):
     cfg = (state.get("probes") or [None])[0]
     if not cfg:
         return []
-    return [{
-        "name": _probe_name(c["target"]),
-        "host": c["name"],            # the container name resolves on the Docker network
-        "port": cfg.get("port", 80),
-        "path": cfg.get("path", "/"),
-    } for c in matching]
+    # Named after the CONTAINER, which Docker guarantees unique. Naming after the target
+    # would collide for scaled replicas, which share a service on purpose.
+    out, seen = [], set()
+    for c in matching:
+        name = _probe_name(c["name"])
+        if name in seen:                      # belt and braces: never emit two probes alike
+            continue
+        seen.add(name)
+        out.append({"name": name, "host": c["name"],
+                    "port": cfg.get("port", 80), "path": cfg.get("path", "/")})
+    return out
 
 
 def target_info(matching):
@@ -94,6 +106,11 @@ def container_inventory(containers, monitored_ids):
 
 def generate(state):
     """Write the stack files. Returns a summary of what was done."""
+    with LOCK:
+        return _generate(state)
+
+
+def _generate(state):
     containers = docker_api.containers()
     matching = rules.evaluate(state.get("rules"), state.get("exclusions"), containers)
     probes = probes_for(state, matching)
@@ -153,6 +170,11 @@ PROBER = "p0m-cloudprober"
 
 
 def launch(state=None):
+    with LOCK:
+        return _launch(state)
+
+
+def _launch(state=None):
     """Bring the stack up. Returns (ok, output).
 
     Three steps, in this order:
@@ -164,12 +186,7 @@ def launch(state=None):
     notes = []
     _, created = docker_api.ensure_network(NETWORK)
     notes.append(f"network {NETWORK}: {'created' if created else 'already present'}")
-
-    # the app joins its own network so it can talk to prometheus by name later
-    mine = docker_api.self_container("p0m-app")
-    if mine and NETWORK not in docker_api.networks_of(mine):
-        docker_api.connect(NETWORK, mine)
-        notes.append(f"app attached to network {NETWORK}")
+    notes.extend(ensure_self_attached())
 
     r = subprocess.run(
         ["docker", "compose", "-f", os.path.join(GENERATED_DIR, "docker-compose.yml"),
@@ -183,7 +200,29 @@ def launch(state=None):
     return True, "\n".join(notes) + "\n" + output
 
 
+def ensure_self_attached():
+    """Put the app on its own network so it can reach prometheus by name.
+
+    This used to happen only in launch(). Rebuilding the app creates a NEW container
+    that is not on that network, so the reconciler — which never calls launch() — lost
+    its ability to reload Prometheus. It belongs wherever it is needed, not once.
+    """
+    try:
+        mine = docker_api.self_container("p0m-app")
+        if mine and NETWORK not in docker_api.networks_of(mine):
+            docker_api.connect(NETWORK, mine)
+            return [f"app attached to network {NETWORK}"]
+    except Exception as exc:
+        return [f"could not attach the app to {NETWORK}: {exc}"]
+    return []
+
+
 def apply(state, changed):
+    with LOCK:
+        return _apply(state, changed)
+
+
+def _apply(state, changed):
     """React to what changed. Writing a file is not enough: someone has to read it.
 
       cloudprober  -> reads its config only at startup, so it must be restarted
@@ -211,6 +250,7 @@ def apply(state, changed):
         notes.append("cloudprober is not running: nothing to restart")
 
     if "prometheus" in changed:
+        notes.extend(ensure_self_attached())
         notes.append(_reload_prometheus())
 
     if not notes:
@@ -242,8 +282,8 @@ def _attach_prober(state):
             return ["prober not running: nothing to attach"]
         wanted = set()
         for c in matching:
-            wanted.update(docker_api.networks_of(c["id"]))
-        mine = set(docker_api.networks_of(prober["id"]))
+            wanted.update(c.get("networks") or docker_api.networks_of(c["id"]))
+        mine = set(prober.get("networks") or docker_api.networks_of(prober["id"]))
         for net in sorted(wanted - mine):
             docker_api.connect(net, prober["id"])
             notes.append(f"prober attached to network {net}")

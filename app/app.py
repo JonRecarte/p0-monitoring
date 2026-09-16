@@ -6,9 +6,14 @@ import os
 
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 
-import capabilities, docker_api, generator, rules, state
+import capabilities, docker_api, generator, reconciler, rules, state
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
+
+# Watches Docker and keeps the generated configuration in step, so a container that
+# starts later and matches the rule gets measured without anyone opening a browser.
+RECONCILER = reconciler.Reconciler()
+RECONCILER.start()
 
 
 def _s():
@@ -134,7 +139,8 @@ def status():
     everything = docker_api.containers()
     return render_template("status.html", s=s, stack=generator.stack_status(),
                            matching=rules.evaluate(s.get("rules"), s.get("exclusions"), everything),
-                           report=capabilities.report(), step=0)
+                           report=capabilities.report(),
+                           reconciler=RECONCILER.snapshot(), step=0)
 
 
 @app.route("/containers", methods=["GET"])
@@ -157,6 +163,11 @@ def api_capabilities():
 @app.route("/api/containers")
 def api_containers():
     return jsonify(docker_api.containers())
+
+
+@app.route("/api/reconciler")
+def api_reconciler():
+    return jsonify(RECONCILER.snapshot())
 
 
 @app.route("/api/stack")

@@ -63,8 +63,14 @@ def containers(all_states=False):
     for c in _get("/containers/json", {"all": "1"} if all_states else None) or []:
         labels = c.get("Labels") or {}
         name = (c.get("Names") or ["/?"])[0].lstrip("/")
-        project = labels.get("com.docker.compose.project")
-        service = labels.get("com.docker.compose.service")
+        # Compose bakes project/service/version into the IMAGE it builds, so any container
+        # started from that image inherits them and would claim an identity that is not
+        # its own. Only a container Compose actually created carries container-number,
+        # so that is what makes the compose labels trustworthy. This also keeps the
+        # legitimate case working: scaled replicas do share a service, on purpose.
+        from_compose = "com.docker.compose.container-number" in labels
+        project = labels.get("com.docker.compose.project") if from_compose else None
+        service = labels.get("com.docker.compose.service") if from_compose else None
         out.append({
             "id": c["Id"],
             "short_id": c["Id"][:12],
@@ -74,12 +80,16 @@ def containers(all_states=False):
             # 'target' is the stable name: Compose service > container name
             "target": service or name,
             "identity_source": "compose" if service else "name",
+            "from_compose": from_compose,
             "labels": {k: v for k, v in labels.items() if not k.startswith("com.docker.compose")},
             "ports": sorted({p["PrivatePort"] for p in (c.get("Ports") or []) if p.get("PrivatePort")}),
             "state": c.get("State", ""),
             "ip": next((n.get("IPAddress") for n in
                         ((c.get("NetworkSettings") or {}).get("Networks") or {}).values()
                         if n.get("IPAddress")), ""),
+            # already in this payload, so the reconciler can fingerprint networks
+            # without one inspect call per container on every tick
+            "networks": sorted(((c.get("NetworkSettings") or {}).get("Networks") or {}).keys()),
         })
     return sorted(out, key=lambda x: x["name"])
 

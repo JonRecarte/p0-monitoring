@@ -13,6 +13,25 @@
 {% endif %}
 
 <div class="panel"><table>
+<tr><th>Reconciler</th><th></th></tr>
+<tr><td class="mono lead">state</td>
+  <td>{% if reconciler.enabled %}<span class="yes">watching every {{ reconciler.interval }}s</span>
+      {% else %}<span class="wn">disabled</span>{% endif %}</td></tr>
+<tr><td class="mono">targets</td><td>{{ reconciler.targets }}</td></tr>
+<tr><td class="mono">last check</td><td>{{ reconciler.last_run or '—' }}</td></tr>
+<tr><td class="mono">last change</td><td>{{ reconciler.last_change or 'none since start' }}</td></tr>
+</table></div>
+
+{% if reconciler.activity %}
+<div class="panel"><table>
+<tr><th>Recent activity</th></tr>
+{% for a in reconciler.activity %}
+<tr><td class="mono"><span style="color:var(--soft)">{{ a.at }}</span>&nbsp;&nbsp;{{ a.text }}</td></tr>
+{% endfor %}
+</table></div>
+{% endif %}
+
+<div class="panel"><table>
 <tr><th>Stack piece</th><th>State</th></tr>
 {% for name,st in stack.items() %}
 <tr><td class="mono lead">{{ name }}</td>
