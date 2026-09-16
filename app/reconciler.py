@@ -1,22 +1,27 @@
-"""Keeps the generated configuration in step with what is actually running.
+"""Keeps each machine's configuration in step with what is actually running on it.
 
-The wizard configures once. Containers, though, come and go: one that starts later and
-matches an existing rule should be measured without anyone opening a browser.
+The same loop runs on every machine. The only difference is where the configuration
+comes from: the hub has it, a node fetches it. That is what makes a single machine the
+N=1 case of the same product rather than a separate one.
 
-It does NOT decide what to monitor — the rule does that. It only makes reality and the
-generated configuration agree, and says out loud what it did.
+It does NOT decide what to monitor — the rule does. It makes reality and the generated
+configuration agree, and says out loud what it did.
 """
+import json
 import logging
 import os
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections import deque
 from datetime import datetime
 
 import docker_api
 import generator
-import rules
-import state
+import role
+import rules as rules_mod
+import state as state_mod
 
 INTERVAL = int(os.environ.get("RECONCILE_INTERVAL", "15"))
 HISTORY = 25
@@ -32,9 +37,11 @@ class Reconciler:
         self.last_change = None
         self.ticks = 0
         self.enabled = interval > 0
-        self._targets = None          # what matched on the previous pass
+        self.config = None            # what this machine has been told to apply
+        self.config_error = None      # a node that cannot reach its hub
+        self._targets = None
         self._probe = None
-        self._attached = False        # app on the stack network, so it can reload Prometheus
+        self._machines = None
         self._thread = None
 
     # ------------------------------------------------------------------ lifecycle
@@ -44,7 +51,7 @@ class Reconciler:
             return
         self._thread = threading.Thread(target=self._loop, daemon=True, name="reconciler")
         self._thread.start()
-        self._note(f"watching Docker every {self.interval}s")
+        self._note(f"{role.describe()} · watching Docker every {self.interval}s")
 
     def _loop(self):
         while True:
@@ -59,34 +66,49 @@ class Reconciler:
         self.activity.appendleft({"at": datetime.now().strftime("%H:%M:%S"), "text": text})
         log.info("reconciler: %s", text)
 
+    # ------------------------------------------------------------- configuration
+    def _fetch_config(self):
+        """A node asks its hub. On failure it keeps the last configuration it had:
+        losing contact must not silently stop the measuring."""
+        try:
+            with urllib.request.urlopen(f"{role.HUB_URL}/api/config", timeout=8) as r:
+                cfg = json.load(r)
+            if self.config_error:
+                self._note(f"hub reachable again at {role.HUB_URL}")
+            self.config_error = None
+            return cfg
+        except Exception as exc:
+            if not self.config_error:
+                self._note(f"cannot reach the hub at {role.HUB_URL}: {exc}")
+            self.config_error = str(exc)
+            return self.config          # keep applying what we already knew
+
+    def current_config(self):
+        if role.IS_HUB:
+            s = state_mod.load()
+            return {k: s.get(k) for k in ("rules", "exclusions", "probes")}
+        return self._fetch_config()
+
     # ------------------------------------------------------------------- one pass
     def tick(self):
-        s = state.load()
         self.ticks += 1
         self.last_run = datetime.now().strftime("%H:%M:%S")
 
-        # Before the wizard has been completed there is nothing to keep in step, and
-        # generating from an empty state would produce a stack that measures nothing.
-        if not generator.is_installed(s):
-            return
+        cfg = self.current_config()
+        self.config = cfg
+        if not cfg or not cfg.get("rules"):
+            return          # nothing configured yet: generating now would measure nothing
 
-        # Once there is a stack to talk to, make sure the app can reach it by name.
-        # Rebuilding the app creates a new container that is not on the stack network,
-        # and without this the Prometheus reload fails with a DNS error.
-        if not self._attached:
-            for note in generator.ensure_self_attached():
-                self._note(note)
-            self._attached = True
+        if role.IS_HUB:
+            self._hub_side()
 
-        containers = docker_api.containers()
-        matching = rules.evaluate(s.get("rules"), s.get("exclusions"), containers)
-        probe = (s.get("probes") or [None])[0]
+        running = [c for c in docker_api.containers() if c["state"] == "running"]
+        matching = rules_mod.evaluate(cfg.get("rules"), cfg.get("exclusions"), running)
+        probe = (cfg.get("probes") or [None])[0]
 
-        # What the generated configuration depends on: who matches, under what name and
-        # project, on which networks (the prober has to reach them), and the probe config.
-        targets = {c["id"]: (c["target"], c["project"], tuple(c.get("networks") or []))
-                   for c in matching}
-
+        # What the generated configuration depends on: who matches, under what name,
+        # on which networks (the prober has to reach them), and the probe settings.
+        targets = {c["id"]: (c["name"], tuple(c.get("networks") or [])) for c in matching}
         if targets == self._targets and probe == self._probe:
             return
 
@@ -96,9 +118,9 @@ class Reconciler:
         self._targets, self._probe = targets, probe
 
         if first:
-            # First pass after start-up. Reconcile anyway: containers may have come or
-            # gone while the app was down, and apply() only restarts what actually needs it.
-            self._reconcile(s, f"start-up check · {len(targets)} target(s)")
+            # First pass after start-up: reconcile anyway. Containers may have come or
+            # gone while the app was down, and apply only restarts what needs it.
+            self._reconcile(cfg, f"start-up check · {len(targets)} target(s)")
             return
 
         what = []
@@ -106,25 +128,40 @@ class Reconciler:
             what.append("appeared: " + ", ".join(sorted(appeared)))
         if gone:
             what.append("gone: " + ", ".join(sorted(gone)))
-        if not what:
-            what.append("target details changed")
-        self._reconcile(s, " · ".join(what))
+        self._reconcile(cfg, " · ".join(what) or "target details changed")
 
-    def _reconcile(self, s, reason):
+    def _hub_side(self):
+        """The scrape configuration only changes when the list of machines does."""
+        s = state_mod.load()
+        machines = json.dumps(s.get("machines") or [], sort_keys=True)
+        if machines == self._machines:
+            return
+        first = self._machines is None
+        self._machines = machines
+        result = generator.generate_hub(s)
+        if result["changed"] or first:
+            if not first:
+                self._note("machine list changed: scrape configuration rewritten")
+            if "prometheus" in result["changed"]:
+                self._note("  " + generator.reload_prometheus())
+
+    def _reconcile(self, cfg, reason):
         self._note(reason)
-        result = generator.generate(s)
-        for note in generator.apply(s, result["changed"]):
+        result = generator.generate_local(cfg)
+        for note in generator.apply_local(cfg, result["changed"]):
             self._note("  " + note)
         self.last_change = datetime.now().strftime("%H:%M:%S")
 
     # ---------------------------------------------------------------------- status
     def snapshot(self):
         return {
+            "role": role.describe(),
             "enabled": self.enabled,
             "interval": self.interval,
             "ticks": self.ticks,
             "last_run": self.last_run,
             "last_change": self.last_change,
             "targets": len(self._targets or {}),
+            "config_error": self.config_error,
             "activity": list(self.activity),
         }

@@ -1,19 +1,35 @@
-"""The app: onboarding wizard and stack governance.
+"""The app: the wizard and the control plane on a hub, the local agent on a node.
 
-The app is NOT in the data path. If it dies, the stack keeps measuring.
+The app is NOT in the data path. If it dies, the collectors keep measuring.
 """
 import os
 
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import (Flask, Response, jsonify, redirect, render_template, request,
+                   url_for)
 
-import capabilities, docker_api, generator, reconciler, rules, state
+import capabilities
+import docker_api
+import generator
+import inventory
+import reconciler
+import role
+import rules
+import state
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
-# Watches Docker and keeps the generated configuration in step, so a container that
-# starts later and matches the rule gets measured without anyone opening a browser.
+# Watches Docker and keeps this machine's configuration in step. Runs in both roles:
+# the only difference is where the configuration comes from.
 RECONCILER = reconciler.Reconciler()
 RECONCILER.start()
+
+# The hub writes its scrape configuration up front, so Prometheus has something valid
+# to start with. Its healthcheck is what Prometheus waits on.
+if role.IS_HUB:
+    try:
+        generator.generate_hub(state.load())
+    except Exception:                                   # never block start-up on this
+        pass
 
 
 def _s():
@@ -22,24 +38,42 @@ def _s():
 
 @app.context_processor
 def _globals():
-    """`installed` drives the navigation: no status link during the first install."""
-    return {"installed": generator.is_installed(state.load())}
+    return {"installed": role.IS_HUB and generator.is_installed(state.load()),
+            "is_hub": role.IS_HUB, "role_text": role.describe()}
+
+
+def hub_only(view):
+    """A node has no wizard: it applies what the hub tells it."""
+    def wrapped(*a, **kw):
+        if role.IS_NODE:
+            return render_template("node.html", hub=role.HUB_URL,
+                                   snapshot=RECONCILER.snapshot()), 200
+        return view(*a, **kw)
+    wrapped.__name__ = view.__name__
+    return wrapped
 
 
 # ------------------------------------------------------------- step 1: environment
 @app.route("/", methods=["GET", "POST"])
+@hub_only
 def step1_environment():
     s = _s()
     if request.method == "POST":
         s["environment"] = request.form.get("environment", "docker")
-        s["machine"] = (request.form.get("machine") or "").strip() or "unnamed"
+        name = (request.form.get("machine") or "").strip() or "hub"
+        hub = state.hub(s)
+        if hub:
+            hub["name"] = name
+        else:
+            s["machines"].insert(0, {"name": name, "address": "local", "role": "hub"})
         state.save(s)
         return redirect(url_for("step2_capabilities"))
-    return render_template("step1.html", s=s, step=1)
+    return render_template("step1.html", s=s, hub=state.hub(s), step=1)
 
 
 # ------------------------------------------------------ step 2: what can be measured
 @app.route("/capabilities", methods=["GET", "POST"])
+@hub_only
 def step2_capabilities():
     s = _s()
     if not s.get("environment"):
@@ -56,13 +90,10 @@ def step2_capabilities():
 
 # ------------------------------------------------------ step 3: containers and rules
 @app.route("/discover", methods=["GET", "POST"])
+@hub_only
 def step3_discover():
     s = _s()
-    try:
-        everything = docker_api.containers()
-    except Exception as exc:
-        return render_template("error.html", message=f"Cannot talk to Docker: {exc}")
-
+    everything, problems = inventory.all_containers(s)
     message = None
     if request.method == "POST":
         ids = set(request.form.getlist("sel"))
@@ -71,86 +102,161 @@ def step3_discover():
             s["rules"] = rules.propose(picked, everything)
             state.save(s)
             return redirect(url_for("step4_qos"))
-        # never let the wizard finish monitoring nothing
         message = "Pick at least one container: with none selected there is nothing to monitor."
 
     matching = rules.evaluate(s.get("rules"), s.get("exclusions"), everything)
     return render_template("step3.html", s=s, everything=everything,
                            matching={c["id"] for c in matching},
                            excluded=rules.excluded_ids(s.get("exclusions"), everything),
-                           unstable=rules.unstable(everything), message=message, step=3)
+                           unstable=rules.unstable(everything), problems=problems,
+                           message=message, step=3)
 
 
-# --------------------------------------------------------------------- step 4: QoS
+# ------------------------------------------------------------------------ step 4: QoS
 @app.route("/qos", methods=["GET", "POST"])
+@hub_only
 def step4_qos():
     s = _s()
-    everything = docker_api.containers()
+    everything, _ = inventory.all_containers(s)
     matching = rules.evaluate(s.get("rules"), s.get("exclusions"), everything)
     if request.method == "POST":
         if request.form.get("skip"):
             s["probes"] = []
         else:
-            # one probe config for the whole selection: it applies to every target
             s["probes"] = [{"type": "http",
                             "port": int(request.form.get("port") or 80),
                             "path": request.form.get("path") or "/"}]
         state.save(s)
         return redirect(url_for("step5_confirm"))
-    # what was chosen before wins over the suggestion: adding a container must not
-    # mean retyping the probe config, now that this is the only path back in
     saved = (s.get("probes") or [None])[0]
-    suggested = None
-    for c in matching:
-        if c["ports"]:
-            suggested = c["ports"][0]
-            break
-    port = (saved or {}).get("port") or suggested or 80
-    path = (saved or {}).get("path") or "/"
+    suggested = next((c["ports"][0] for c in matching if c.get("ports")), None)
     return render_template("step4.html", s=s, matching=matching, suggested=suggested,
-                           port=port, path=path, step=4)
+                           port=(saved or {}).get("port") or suggested or 80,
+                           path=(saved or {}).get("path") or "/", step=4)
 
 
-# ----------------------------------------------------------------- step 5: confirm
+# -------------------------------------------------------------------- step 5: confirm
 @app.route("/confirm")
+@hub_only
 def step5_confirm():
     s = _s()
-    everything = docker_api.containers()
+    everything, _ = inventory.all_containers(s)
     matching = rules.evaluate(s.get("rules"), s.get("exclusions"), everything)
     return render_template("step5.html", s=s, matching=matching,
                            probes=generator.probes_for(s, matching), step=5)
 
 
-# ---------------------------------------------------------------- step 6: provision
+# ------------------------------------------------------------------ step 6: provision
 @app.route("/provision", methods=["POST"])
+@hub_only
 def step6_provision():
     s = _s()
-    result = generator.generate(s)
-    ok, output = generator.launch(s)
-    return render_template("step6.html", s=s, result=result, ok=ok, output=output, step=6)
+    hub_result = generator.generate_hub(s)
+    notes = []
+    if "prometheus" in hub_result["changed"]:
+        notes.append(generator.reload_prometheus())
+    local = generator.generate_local(s)
+    notes.extend(generator.apply_local(s, local["changed"]))
+    everything, problems = inventory.all_containers(s)
+    matching = rules.evaluate(s.get("rules"), s.get("exclusions"), everything)
+    return render_template("step6.html", s=s, matching=matching, notes=notes,
+                           files=hub_result["files"], problems=problems, step=6)
+
+
+# ---------------------------------------------------------------------- machines
+@app.route("/machines", methods=["GET", "POST"])
+@hub_only
+def machines():
+    s = _s()
+    message = added = None
+    if request.method == "POST":
+        if request.form.get("remove"):
+            name = request.form["remove"]
+            s["machines"] = [m for m in s["machines"] if m["name"] != name]
+            state.save(s)
+            generator.generate_hub(s)
+            generator.reload_prometheus()
+            message = (f"{name} removed. Stop the compose on that machine as well: "
+                       "the hub cannot do it for you.")
+        else:
+            name = (request.form.get("name") or "").strip()
+            address = (request.form.get("address") or "").strip()
+            if not name or not address:
+                message = "A node needs both a name and an address."
+            elif state.find(s, name):
+                message = f"There is already a machine called {name}."
+            else:
+                s["machines"].append({"name": name, "address": address, "role": "node"})
+                state.save(s)
+                generator.generate_hub(s)
+                generator.reload_prometheus()
+                added = name
+    return render_template("machines.html", s=s, health=_machine_health(s),
+                           message=message, added=added,
+                           hub_address=request.host.split(":")[0], step=0)
+
+
+def _machine_health(s):
+    """Is each machine reporting? Read straight from Prometheus `up`."""
+    import json
+    import urllib.parse
+    import urllib.request
+    out = {}
+    try:
+        q = urllib.parse.urlencode({"query": 'sum by (cluster) (up)'})
+        with urllib.request.urlopen(f"{generator.PROMETHEUS_URL}/api/v1/query?{q}", timeout=6) as r:
+            for row in json.load(r)["data"]["result"]:
+                out[row["metric"].get("cluster")] = float(row["value"][1])
+    except Exception:
+        pass
+    health = {}
+    for m in s.get("machines") or []:
+        up = out.get(m["name"])
+        health[m["name"]] = ("reporting" if up else
+                             "silent" if up == 0 else "no data yet")
+    return health
 
 
 # ------------------------------------------------------------- status and operation
 @app.route("/status")
+@hub_only
 def status():
     s = _s()
     if not generator.is_installed(s):
         return redirect(url_for("step1_environment"))
-    everything = docker_api.containers()
+    everything, problems = inventory.all_containers(s)
     return render_template("status.html", s=s, stack=generator.stack_status(),
                            matching=rules.evaluate(s.get("rules"), s.get("exclusions"), everything),
-                           report=capabilities.report(),
-                           reconciler=RECONCILER.snapshot(), step=0)
+                           report=capabilities.report(), health=_machine_health(s),
+                           problems=problems, reconciler=RECONCILER.snapshot(), step=0)
 
 
-@app.route("/containers", methods=["GET"])
+@app.route("/containers")
+@hub_only
 def containers_shortcut():
-    """Once installed, adding a container starts here."""
     return redirect(url_for("step3_discover"))
 
 
 # ------------------------------------------------------------------------- the API
+@app.route("/api/config")
+def api_config():
+    """What a node asks for. The hub decides; each node applies it to what it sees."""
+    if role.IS_NODE:
+        return jsonify(RECONCILER.config or {})
+    s = _s()
+    return jsonify({k: s.get(k) for k in ("rules", "exclusions", "probes")})
+
+
+@app.route("/metrics")
+def metrics():
+    """This machine's inventory. The hub stamps `cluster` when it scrapes."""
+    import metrics as metrics_mod
+    cfg = RECONCILER.config or {"rules": [], "exclusions": [], "probes": []}
+    return Response(metrics_mod.render(cfg), mimetype="text/plain; version=0.0.4")
+
+
 @app.route("/api/state")
+@hub_only
 def api_state():
     return jsonify(_s())
 
@@ -162,17 +268,18 @@ def api_capabilities():
 
 @app.route("/api/containers")
 def api_containers():
-    return jsonify(docker_api.containers())
-
-
-@app.route("/api/reconciler")
-def api_reconciler():
-    return jsonify(RECONCILER.snapshot())
+    """This machine's containers. A node serves this so the hub can discover."""
+    return jsonify(docker_api.containers(all_states=True))
 
 
 @app.route("/api/stack")
 def api_stack():
     return jsonify(generator.stack_status())
+
+
+@app.route("/api/reconciler")
+def api_reconciler():
+    return jsonify(RECONCILER.snapshot())
 
 
 @app.route("/healthz")

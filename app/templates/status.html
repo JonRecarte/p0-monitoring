@@ -1,30 +1,49 @@
 {% extends "base.html" %}{% block title %}Status{% endblock %}{% block body %}
 <h1>Status</h1>
 
+{% for name, h in health.items() %}
+  {% if h == 'silent' %}
+<div class="notice bad"><p style="color:inherit;margin:0">
+  <b>{{ name }} is not reporting.</b> Its collectors are unreachable — the machine may be
+  down, or the compose stopped there. Its containers stay on the dashboard with their last
+  known state.</p></div>
+  {% endif %}
+{% endfor %}
+
+{% for p in problems %}
+<div class="notice bad"><p style="color:inherit;margin:0">{{ p.machine }} is not answering: {{ p.error }}</p></div>
+{% endfor %}
+
 <div class="panel"><div class="actions" style="margin:0">
   <a href="/discover"><button type="button">Add or remove containers</button></a>
+  <a href="/machines"><button type="button" class="sec">Machines</button></a>
 </div></div>
 
-{% if notes %}
 <div class="panel"><table>
-<tr><th>Last regeneration</th></tr>
-{% for n in notes %}<tr><td class="mono">{{ n }}</td></tr>{% endfor %}
+<tr><th>Machine</th><th>Address</th><th>Role</th><th>State</th></tr>
+{% for m in s.machines %}
+<tr><td class="mono lead">{{ m.name }}</td><td class="mono">{{ m.address }}</td>
+  <td class="mono">{{ m.role }}</td>
+  <td>{% set h = health.get(m.name) %}
+      {% if h == 'reporting' %}<span class="yes">reporting</span>
+      {% elif h == 'silent' %}<span class="no">silent</span>
+      {% else %}<span class="wn">{{ h }}</span>{% endif %}</td></tr>
+{% endfor %}
 </table></div>
-{% endif %}
 
 <div class="panel"><table>
-<tr><th>Reconciler</th><th></th></tr>
-<tr><td class="mono lead">state</td>
+<tr><th>Reconciler ({{ role_text }})</th><th></th></tr>
+<tr><td class="mono">state</td>
   <td>{% if reconciler.enabled %}<span class="yes">watching every {{ reconciler.interval }}s</span>
       {% else %}<span class="wn">disabled</span>{% endif %}</td></tr>
-<tr><td class="mono">targets</td><td>{{ reconciler.targets }}</td></tr>
+<tr><td class="mono">targets here</td><td>{{ reconciler.targets }}</td></tr>
 <tr><td class="mono">last check</td><td>{{ reconciler.last_run or '—' }}</td></tr>
 <tr><td class="mono">last change</td><td>{{ reconciler.last_change or 'none since start' }}</td></tr>
 </table></div>
 
 {% if reconciler.activity %}
 <div class="panel"><table>
-<tr><th>Recent activity</th></tr>
+<tr><th>Recent activity on this machine</th></tr>
 {% for a in reconciler.activity %}
 <tr><td class="mono"><span style="color:var(--soft)">{{ a.at }}</span>&nbsp;&nbsp;{{ a.text }}</td></tr>
 {% endfor %}
@@ -32,7 +51,7 @@
 {% endif %}
 
 <div class="panel"><table>
-<tr><th>Stack piece</th><th>State</th></tr>
+<tr><th>Stack piece (this machine)</th><th>State</th></tr>
 {% for name,st in stack.items() %}
 <tr><td class="mono lead">{{ name }}</td>
   <td>{% if st=='running' %}<span class="yes">running</span>
@@ -51,10 +70,10 @@
 </table></div>
 
 <div class="panel">
-<table><tr><th>Target</th><th>Project</th><th>App</th><th>Identity</th></tr>
+<table><tr><th>Machine</th><th>Target</th><th>Project</th><th>Identity</th></tr>
 {% for c in matching %}
-<tr><td class="mono lead">{{ c.target }}</td><td class="mono">{{ c.project }}</td>
-  <td class="mono">{{ c.app or '—' }}</td>
+<tr><td class="mono">{{ c.machine }}</td><td class="mono lead">{{ c.target }}</td>
+  <td class="mono">{{ c.project }}</td>
   <td>{% if c.identity_source=='compose' %}<span class="yes">stable</span>{% else %}<span class="wn">name</span>{% endif %}</td></tr>
 {% endfor %}
 {% if not matching %}<tr><td colspan="4">no targets</td></tr>{% endif %}</table>

@@ -16,24 +16,28 @@ NS = 'namespace=~"$namespace"'
 
 
 POD_VAR = 'pod=~"$pod"'
+CLUSTER = 'cluster=~"$cluster"'
 
 
 def sel(*extra):
-    """A PromQL label selector with both dashboard filters applied."""
-    return "{" + ", ".join([NS, POD_VAR] + [e for e in extra if e]) + "}"
+    """A PromQL label selector with the three dashboard filters applied."""
+    return "{" + ", ".join([CLUSTER, NS, POD_VAR] + [e for e in extra if e]) + "}"
 
 
 # Every container panel is restricted to what is actually monitored. target_info holds
 # exactly the targets the membership rule matched, so joining against it keeps the
 # monitoring stack and the app itself out of the graphs.
 def only_monitored():
-    return f' and on (pod, namespace) target_info{sel()}'
+    # cluster is part of the key: a drone-1 on one machine and a drone-1 on another are
+    # different things, and without it they would be silently merged.
+    return f' and on (cluster, pod, namespace) target_info{sel()}'
 
 
 def monitored_join(fn):
-    """Kepler knows no container names: identity and filtering both come from the join."""
-    return (f'sum by(namespace,pod) ({fn}(kepler_container_package_joules_total[5m]) '
-            f'* on(container_id) group_left(pod,namespace) target_info{sel()})')
+    """Kepler knows no container names: identity and filtering both come from the join.
+    container_id is globally unique, so it is enough as the join key."""
+    return (f'sum by(cluster,namespace,pod) ({fn}(kepler_container_package_joules_total[5m]) '
+            f'* on(container_id) group_left(cluster,namespace,pod) target_info{sel()})')
 
 
 def selraw(*parts):
@@ -76,7 +80,7 @@ def stat(title, expr, unit="none", w=6, h=4, y=None, color="green"):
     stat.x += w
 
 
-def ts(title, expr, unit, legend="{{namespace}}/{{pod}}", w=16, h=9, y=None, extra=None):
+def ts(title, expr, unit, legend="{{cluster}}/{{pod}}", w=16, h=9, y=None, extra=None):
     p = {"type": "timeseries", "title": title, "datasource": DS,
          "gridPos": {"h": h, "w": w, "x": ts.x, "y": y},
          "fieldConfig": {"defaults": {"unit": unit, "custom": dict(LINE), "min": 0},
@@ -89,7 +93,7 @@ def ts(title, expr, unit, legend="{{namespace}}/{{pod}}", w=16, h=9, y=None, ext
     ts.x += w
 
 
-def topn(title, expr, unit, n=5, legend="{{namespace}}/{{pod}}", w=8, h=9, y=None):
+def topn(title, expr, unit, n=5, legend="{{cluster}}/{{pod}}", w=8, h=9, y=None):
     """A Top N bar gauge, sorted by value.
 
     A bar gauge draws one bar per series in whatever order the query returns them, which
@@ -130,14 +134,14 @@ def pair(title_ts, title_top, expr, unit, n=5):
 # ---------------------------------------------------------------- expressions
 POD = 'pod!=""'
 M = only_monitored()
-CPU   = f'sum by(namespace,pod) (rate(container_cpu_usage_seconds_total{sel(POD)}[5m]){M}) * 1000'
-MEM   = f'sum by(namespace,pod) (container_memory_working_set_bytes{sel(POD)}{M}) / 1024 / 1024'
+CPU   = f'sum by(cluster,namespace,pod) (rate(container_cpu_usage_seconds_total{sel(POD)}[5m]){M}) * 1000'
+MEM   = f'sum by(cluster,namespace,pod) (container_memory_working_set_bytes{sel(POD)}{M}) / 1024 / 1024'
 POWER = monitored_join("rate")
 ENER  = monitored_join("increase")
-RX    = f'sum by(namespace,pod) (rate(container_network_receive_bytes_total{sel(POD)}[5m]){M}) * 8'
-TX    = f'sum by(namespace,pod) (rate(container_network_transmit_bytes_total{sel(POD)}[5m]){M}) * 8'
-DR    = f'sum by(namespace,pod) (rate(container_fs_reads_bytes_total{sel(POD)}[5m]){M})'
-DW    = f'sum by(namespace,pod) (rate(container_fs_writes_bytes_total{sel(POD)}[5m]){M})'
+RX    = f'sum by(cluster,namespace,pod) (rate(container_network_receive_bytes_total{sel(POD)}[5m]){M}) * 8'
+TX    = f'sum by(cluster,namespace,pod) (rate(container_network_transmit_bytes_total{sel(POD)}[5m]){M}) * 8'
+DR    = f'sum by(cluster,namespace,pod) (rate(container_fs_reads_bytes_total{sel(POD)}[5m]){M})'
+DW    = f'sum by(cluster,namespace,pod) (rate(container_fs_writes_bytes_total{sel(POD)}[5m]){M})'
 
 # ---------------------------------------------------------------- overview
 row("Overview")
@@ -146,9 +150,12 @@ stat.x = 0
 MON         = 'monitored="1"'
 RUNNING     = 'state="running"'
 NOT_RUNNING = 'state!="running"'
-stat("Monitored containers", f'count(container_info{sel(MON)})',              y=_y_ov, w=8, color="text")
-stat("Running",              f'count(container_info{sel(MON, RUNNING)})',     y=_y_ov, w=8, color="green")
-stat("Not running",          f'count(container_info{sel(MON, NOT_RUNNING)})', y=_y_ov, w=8, color="red")
+# last_over_time so a machine that went silent keeps its containers on screen with
+# their last known state, instead of them vanishing without explanation (D22).
+LAST = "[10m]"
+stat("Monitored containers", f'count(last_over_time(container_info{sel(MON)}{LAST}))',              y=_y_ov, w=8, color="text")
+stat("Running",              f'count(last_over_time(container_info{sel(MON, RUNNING)}{LAST}))',     y=_y_ov, w=8, color="green")
+stat("Not running",          f'count(last_over_time(container_info{sel(MON, NOT_RUNNING)}{LAST}))', y=_y_ov, w=8, color="red")
 
 row("Containers")
 # ---------------------------------------------------------------- inventory
@@ -163,10 +170,10 @@ INV_NUM = [
     ("disk read (B/s)", f'sum by(pod) (rate(container_fs_reads_bytes_total{sel(POD)}[5m]){M})'),
     ("disk write (B/s)",f'sum by(pod) (rate(container_fs_writes_bytes_total{sel(POD)}[5m]){M})')]
 
-targets = [{"datasource": DS, "expr": f'container_info{sel(MON)}', "refId": "A",
+targets = [{"datasource": DS, "expr": f'last_over_time(container_info{sel(MON)}[10m])', "refId": "A",
             "instant": True, "format": "table"}]
-rename = {"namespace": "namespace", "pod": "container", "ip": "ip", "state": "state",
-          "image": "image", "monitored": "monitored"}
+rename = {"cluster": "machine", "namespace": "namespace", "pod": "container",
+          "ip": "ip", "state": "state", "image": "image", "monitored": "monitored"}
 for i, (label, expr) in enumerate(INV_NUM):
     rid = chr(ord("B") + i)
     targets.append({"datasource": DS, "expr": expr, "refId": rid,
@@ -196,7 +203,7 @@ panels.append({
             "renameByName": rename,
             # explicit order: otherwise it depends on how the join happens to emit fields
             "indexByName": {f: i for i, f in enumerate(
-                ["namespace", "pod", "ip", "state", "image"] +
+                ["cluster", "namespace", "pod", "ip", "state", "image"] +
                 [f"Value #{chr(ord('B') + n)}" for n in range(len(INV_NUM))])}}}],
     "targets": targets})
 
@@ -222,44 +229,48 @@ pair("Disk write by container (B/s)", "Top 5 by disk write (B/s)", DW, "Bps")
 # ---------------------------------------------------------------- QoS
 row("QoS / cloudprober")
 QOS = [
- ("latency_ms", "ms", '(sum by(probe,dst) (rate(latency{job="cloudprober"}[$__rate_interval])) / clamp_min(sum by(probe,dst) (rate(total{job="cloudprober"}[$__rate_interval])), 0.000001)) / 1000'),
- ("jitter_ms", "ms", 'stddev_over_time( ( ( sum by (probe,dst) (increase(latency{job="cloudprober"}[15s])) / clamp_min(sum by (probe,dst) (increase(success{job="cloudprober"}[15s])), 1) ) / 1000 )[5m:15s] )'),
- ("success_rate", "percent", '100 * sum by(probe,dst) (rate(success{job="cloudprober"}[$__rate_interval])) / clamp_min(sum by(probe,dst) (rate(total{job="cloudprober"}[$__rate_interval])), 0.000001)'),
- ("error_rate", "percent", '100 * sum by(probe,dst) (rate(failure{job="cloudprober"}[$__rate_interval])) / clamp_min(sum by(probe,dst) (rate(total{job="cloudprober"}[$__rate_interval])), 0.000001)'),
- ("timeout_rate", "percent", '100 * sum by(probe,dst) (rate(timeouts{job="cloudprober"}[$__rate_interval])) / clamp_min(sum by(probe,dst) (rate(total{job="cloudprober"}[$__rate_interval])), 0.000001)'),
- ("request_loss_rate", "percent", '100 * (sum by(probe,dst) (rate(failure{job="cloudprober"}[$__rate_interval])) + sum by(probe,dst) (rate(timeouts{job="cloudprober"}[$__rate_interval]))) / clamp_min(sum by(probe,dst) (rate(total{job="cloudprober"}[$__rate_interval])), 0.000001)'),
- ("throughput_probes_per_min", "none", '60 * sum by(probe,dst) (rate(total{job="cloudprober"}[$__rate_interval]))'),
- ("http_200_per_min", "none", '60 * sum by(probe,dst) (rate(resp_code{job="cloudprober", code="200"}[$__rate_interval]))'),
- ("failures_per_min", "none", '60 * sum by(probe,dst) (rate(failure{job="cloudprober"}[$__rate_interval]))'),
- ("timeouts_per_min", "none", '60 * sum by(probe,dst) (rate(timeouts{job="cloudprober"}[$__rate_interval]))'),
+ ("latency_ms", "ms", '(sum by(cluster,probe,dst) (rate(latency{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval])) / clamp_min(sum by(cluster,probe,dst) (rate(total{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval])), 0.000001)) / 1000'),
+ ("jitter_ms", "ms", 'stddev_over_time( ( ( sum by (cluster,probe,dst) (increase(latency{job=~"cloudprober-.*", cluster=~"$cluster"}[15s])) / clamp_min(sum by (cluster,probe,dst) (increase(success{job=~"cloudprober-.*", cluster=~"$cluster"}[15s])), 1) ) / 1000 )[5m:15s] )'),
+ ("success_rate", "percent", '100 * sum by(cluster,probe,dst) (rate(success{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval])) / clamp_min(sum by(cluster,probe,dst) (rate(total{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval])), 0.000001)'),
+ ("error_rate", "percent", '100 * sum by(cluster,probe,dst) (rate(failure{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval])) / clamp_min(sum by(cluster,probe,dst) (rate(total{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval])), 0.000001)'),
+ ("timeout_rate", "percent", '100 * sum by(cluster,probe,dst) (rate(timeouts{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval])) / clamp_min(sum by(cluster,probe,dst) (rate(total{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval])), 0.000001)'),
+ ("request_loss_rate", "percent", '100 * (sum by(cluster,probe,dst) (rate(failure{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval])) + sum by(cluster,probe,dst) (rate(timeouts{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval]))) / clamp_min(sum by(cluster,probe,dst) (rate(total{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval])), 0.000001)'),
+ ("throughput_probes_per_min", "none", '60 * sum by(cluster,probe,dst) (rate(total{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval]))'),
+ ("http_200_per_min", "none", '60 * sum by(cluster,probe,dst) (rate(resp_code{job=~"cloudprober-.*", cluster=~"$cluster", code="200"}[$__rate_interval]))'),
+ ("failures_per_min", "none", '60 * sum by(cluster,probe,dst) (rate(failure{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval]))'),
+ ("timeouts_per_min", "none", '60 * sum by(cluster,probe,dst) (rate(timeouts{job=~"cloudprober-.*", cluster=~"$cluster"}[$__rate_interval]))'),
 ]
 for i in range(0, len(QOS), 2):
     y = _next_y(7); ts.x = 0
     for title, unit, expr in QOS[i:i+2]:
         extra = {"max": 100} if unit == "percent" else None
-        ts(title, expr, unit, legend="{{probe}}", w=12, h=7, y=y, extra=extra)
+        ts(title, expr, unit, legend="{{cluster}}/{{probe}}", w=12, h=7, y=y, extra=extra)
 
 # ---------------------------------------------------------------- the machine
 row("Virtual machine")
-NODE = 'job="node"'
+NODE = 'job=~"node-.*"'
 MNT = ('mountpoint="/"',)   # --path.rootfs strips the /rootfs prefix
-NODEF = selraw(NODE)
-FS = selraw(NODE, *MNT)
+NODEF = selraw(NODE, CLUSTER)
+FS = selraw(NODE, CLUSTER, *MNT)
+CPU_BUSY = selraw(NODE, CLUSTER, 'mode!="idle"')
+CPU_IDLE = selraw(NODE, CLUSTER, 'mode="idle"')
+
+# Aggregated by cluster: with several machines these are one line each, not one total.
 VM = [
- ("CPU usage (%)", "percent", f'100 - (avg(rate(node_cpu_seconds_total{selraw(NODE, chr(34).join(["mode=", "idle", ""]))}[5m])) * 100)'),
- ("CPU usage (cores)", "none", f'sum(rate(node_cpu_seconds_total{selraw(NODE, chr(34).join(["mode!=", "idle", ""]))}[5m]))'),
- ("RAM usage (%)", "percent", f'100 * (1 - (node_memory_MemAvailable_bytes{NODEF} / node_memory_MemTotal_bytes{NODEF}))'),
- ("RAM used (GiB)", "none", f'(node_memory_MemTotal_bytes{NODEF} - node_memory_MemAvailable_bytes{NODEF}) / 1024 / 1024 / 1024'),
- ("Disk usage (%)", "percent", f'100 - (node_filesystem_avail_bytes{FS} / node_filesystem_size_bytes{FS} * 100)'),
- ("Disk used (GiB)", "none", f'(node_filesystem_size_bytes{FS} - node_filesystem_avail_bytes{FS}) / 1024 / 1024 / 1024'),
- ("Host power over time (W)", "watt", 'sum(rate(kepler_node_package_joules_total[5m]))'),
- ("Host energy over 5m window (J)", "joule", 'sum(increase(kepler_node_package_joules_total[5m]))'),
+ ("CPU usage (%)", "percent", f'100 - (avg by (cluster) (rate(node_cpu_seconds_total{CPU_IDLE}[5m])) * 100)'),
+ ("CPU usage (cores)", "none", f'sum by (cluster) (rate(node_cpu_seconds_total{CPU_BUSY}[5m]))'),
+ ("RAM usage (%)", "percent", f'100 * (1 - (sum by (cluster) (node_memory_MemAvailable_bytes{NODEF}) / sum by (cluster) (node_memory_MemTotal_bytes{NODEF})))'),
+ ("RAM used (GiB)", "none", f'sum by (cluster) (node_memory_MemTotal_bytes{NODEF} - node_memory_MemAvailable_bytes{NODEF}) / 1024 / 1024 / 1024'),
+ ("Disk usage (%)", "percent", f'100 - (sum by (cluster) (node_filesystem_avail_bytes{FS}) / sum by (cluster) (node_filesystem_size_bytes{FS}) * 100)'),
+ ("Disk used (GiB)", "none", f'sum by (cluster) (node_filesystem_size_bytes{FS} - node_filesystem_avail_bytes{FS}) / 1024 / 1024 / 1024'),
+ ("Host power over time (W)", "watt", f'sum by (cluster) (rate(kepler_node_package_joules_total{selraw(CLUSTER)}[5m]))'),
+ ("Host energy over 5m window (J)", "joule", f'sum by (cluster) (increase(kepler_node_package_joules_total{selraw(CLUSTER)}[5m]))'),
 ]
 for i in range(0, len(VM), 2):
     y = _next_y(7); ts.x = 0
     for title, unit, expr in VM[i:i+2]:
         extra = {"max": 100} if unit == "percent" else None
-        ts(title, expr, unit, legend="$machine", w=12, h=7, y=y, extra=extra)
+        ts(title, expr, unit, legend="{{cluster}}", w=12, h=7, y=y, extra=extra)
 
 # ---------------------------------------------------------------- dashboard
 dash = {
@@ -267,17 +278,18 @@ dash = {
     "timezone": "browser", "refresh": "10s", "schemaVersion": 39, "editable": True,
     "time": {"from": "now-1h", "to": "now"},
     "templating": {"list": [
+        {"name": "cluster", "label": "Machine", "type": "query", "datasource": DS,
+         "query": "label_values(target_info, cluster)", "refresh": 2,
+         "includeAll": True, "multi": True,
+         "current": {"selected": True, "text": ["All"], "value": ["$__all"]}, "options": []},
         {"name": "namespace", "label": "Namespace", "type": "query", "datasource": DS,
-         "query": "label_values(target_info, namespace)", "refresh": 2,
+         "query": 'label_values(target_info{cluster=~"$cluster"}, namespace)', "refresh": 2,
          "includeAll": True, "multi": True,
          "current": {"selected": True, "text": ["All"], "value": ["$__all"]}, "options": []},
         {"name": "pod", "label": "Container", "type": "query", "datasource": DS,
-         "query": 'label_values(target_info{namespace=~"$namespace"}, pod)', "refresh": 2,
+         "query": 'label_values(target_info{cluster=~"$cluster", namespace=~"$namespace"}, pod)', "refresh": 2,
          "includeAll": True, "multi": True,
          "current": {"selected": True, "text": ["All"], "value": ["$__all"]}, "options": []},
-        {"name": "machine", "label": "Machine", "type": "query", "datasource": DS,
-         "query": "label_values(container_cpu_usage_seconds_total, cluster)", "refresh": 2,
-         "includeAll": False, "multi": False, "hide": 2, "current": {}, "options": []},
     ]},
     "panels": panels,
 }

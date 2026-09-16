@@ -100,24 +100,6 @@ def containers(all_states=False):
 # external in the generated compose, and attaches the prober to whatever networks the
 # targets already live on.
 
-def ensure_network(name):
-    """Create the network if absent. Idempotent."""
-    existing = _get("/networks") or []
-    for n in existing:
-        if n.get("Name") == name:
-            return n["Id"], False
-    status, body = _post("/networks/create", {"Name": name, "Driver": "bridge"})
-    if status not in (200, 201):
-        raise RuntimeError(f"could not create network {name}: {body}")
-    return body["Id"], True
-
-
-def networks_of(container_id):
-    """Names of the networks a container is attached to."""
-    data = _get(f"/containers/{container_id}/json")
-    return sorted((data.get("NetworkSettings") or {}).get("Networks", {}).keys())
-
-
 def connect(network, container_id):
     """Attach a container to a network. Returns True if it was actually attached now."""
     status, body = _post(f"/networks/{network}/connect", {"Container": container_id})
@@ -136,22 +118,6 @@ def restart(container_id, timeout=10):
     status, body = _post(f"/containers/{container_id}/restart?t={timeout}")
     if status not in (204, 200):
         raise RuntimeError(f"could not restart {container_id}: {status} {body}")
-
-
-def self_container(name_hint=None):
-    """The app's own container, so it can attach itself to the network it created."""
-    try:
-        with open("/etc/hostname") as fh:
-            host = fh.read().strip()
-    except Exception:
-        host = ""
-    for c in _get("/containers/json") or []:
-        if name_hint and (c.get("Names") or [""])[0].lstrip("/") == name_hint:
-            return c["Id"]
-    for c in _get("/containers/json") or []:
-        if host and c["Id"].startswith(host):
-            return c["Id"]
-    return None
 
 
 def started_at(container_id):

@@ -53,7 +53,8 @@ a{color:var(--accent)}
 {% endfor %}
   {% if step==6 %}<b>6·done</b>{% endif %}
   {# no status link during the first install: nothing to look at yet #}
-  {% if installed %}<span style="margin-left:auto"><a href="/status"><b>status</b></a></span>{% endif %}
+  {% if installed %}<span style="margin-left:auto">
+    <a href="/machines">machines</a>&nbsp;&nbsp;<a href="/status"><b>status</b></a></span>{% endif %}
 </div>
 {% block body %}{% endblock %}
 </div></body></html>

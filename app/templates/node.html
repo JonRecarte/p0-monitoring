@@ -1,0 +1,32 @@
+{% extends "base.html" %}{% block title %}Node{% endblock %}{% block body %}
+<h1>Node</h1>
+
+<div class="panel"><table>
+<tr><td>Role</td><td class="mono lead">node of {{ hub }}</td></tr>
+<tr><td>Configuration</td>
+  <td>{% if snapshot.config_error %}<span class="no">cannot reach the hub</span>
+      {% elif snapshot.config %}<span class="yes">fetched from the hub</span>
+      {% else %}<span class="wn">waiting for the hub</span>{% endif %}</td></tr>
+<tr><td>Monitored here</td><td>{{ snapshot.targets }}</td></tr>
+<tr><td>Last check</td><td class="mono">{{ snapshot.last_run or '—' }}</td></tr>
+</table></div>
+
+{% if snapshot.config_error %}
+<div class="notice bad"><p style="color:inherit;margin:0">{{ snapshot.config_error }}</p></div>
+{% endif %}
+
+{% if snapshot.activity %}
+<div class="panel"><table>
+<tr><th>Recent activity</th></tr>
+{% for a in snapshot.activity %}
+<tr><td class="mono"><span style="color:var(--soft)">{{ a.at }}</span>&nbsp;&nbsp;{{ a.text }}</td></tr>
+{% endfor %}
+</table></div>
+{% endif %}
+
+<div class="panel"><table>
+<tr><th>This machine publishes</th></tr>
+<tr><td class="mono">:8000/metrics — its inventory</td></tr>
+<tr><td class="mono">:8080 cAdvisor · :9100 node-exporter · :9102 Kepler · :9313 cloudprober</td></tr>
+</table></div>
+{% endblock %}

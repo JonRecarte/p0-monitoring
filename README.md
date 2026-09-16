@@ -61,13 +61,28 @@ series with Top 5 rankings, a full QoS section, and a summary of the machine.
 
 ## Quick start
 
+Same repository, same command, on every machine. One word tells them apart.
+
 ```bash
 git clone https://github.com/JonRecarte/p0-monitoring.git
-cd p0-monitoring/app
-sudo docker compose up -d --build
+cd p0-monitoring
 ```
 
-Then open **`http://<your-server>:8000`** and follow six screens:
+**On the machine that controls everything** — the hub:
+
+```bash
+docker compose --profile hub up -d --build
+```
+
+**On every other machine you want to measure** — a node:
+
+```bash
+HUB=http://<hub-ip>:8000 docker compose up -d --build
+```
+
+A hub measures itself too, so with a single machine you only ever run the first command.
+
+Then open **`http://<hub>:8000`** and follow six screens:
 
 | | Screen | What you do |
 |---|---|---|
@@ -83,22 +98,23 @@ Data shows up after about 30 seconds.
 
 ## What gets deployed
 
-The app itself is the only thing you start by hand. It generates and launches the rest:
+| Container | Purpose | Runs on | Privileges |
+|---|---|---|---|
+| `p0m-app` | this machine's inventory; the wizard on a hub | every machine | Docker socket |
+| `p0m-cadvisor` | CPU, memory, limits, container labels | every machine | privileged · `/sys` `/var/lib/docker` (read-only) |
+| `p0m-node-exporter` | host metrics | every machine | none |
+| `p0m-kepler` | energy | every machine | privileged · `/sys` `/proc` `/lib/modules` |
+| `p0m-cloudprober` | QoS probes | every machine | none |
+| `p0m-prometheus` | storage and queries | **hub only** | none |
+| `p0m-grafana` | dashboards | **hub only** | none |
 
-| Container | Purpose | Privileges |
-|---|---|---|
-| `p0m-cadvisor` | CPU, memory, limits, container labels | privileged · `/sys` `/proc` `/var/lib/docker` (read-only) |
-| `p0m-kepler` | energy | privileged · `/sys` `/proc` `/lib/modules` `/usr/src` |
-| `p0m-node-exporter` | host metrics | none |
-| `p0m-cloudprober` | QoS probes | none |
-| `p0m-prometheus` | storage and queries | none |
-| `p0m-grafana` | dashboards | none |
+Four of them **must** sit beside what they measure, because they read the local kernel.
+That is the whole reason a node exists. Prometheus and Grafana only live on the hub.
 
-Two of the six need privileges, and screen 5 says so before you commit. The other four ask
-nothing of the system.
+Two need privileges, and screen 5 says so before you commit.
 
-**The app does not put itself in the data path.** Stop it, rebuild it, break it — the stack
-keeps measuring. It also excludes itself and its own stack from what it monitors.
+**The app is not in the data path.** Stop it, rebuild it, break it — the collectors keep
+measuring. It also excludes itself and its own stack from what it monitors.
 
 ## How it works
 
@@ -173,6 +189,26 @@ re-derives the rule, regenerates the configuration, restarts the prober if its p
 changed, and attaches the prober to any network your new container lives on — so you never
 have to touch your own containers to make QoS work.
 
+## Adding a machine
+
+From **Status → Machines**, give the node a name and an address. The app tells you exactly
+what to run there, hands the node its configuration when it asks, and starts scraping it.
+Removing one is the same screen — the app stops scraping, and tells you to stop the compose
+on that machine, which it cannot do for you.
+
+**How the two halves talk**, both over the LAN and without credentials:
+
+- **hub → node**: Prometheus scrapes five endpoints — `:8000` `:8080` `:9100` `:9102` `:9313`.
+- **node → hub**: the node asks for its configuration. Since the hub has no access to the
+  node's Docker daemon, it cannot push anything: the node comes and fetches.
+
+The hub decides *what* is monitored; each node applies that to what it can see, and manages
+its own probes. That is also why a single machine is not a special case — the hub is simply
+the node that also holds the control plane.
+
+**If a node goes quiet**, Status says so, and its containers stay on the dashboard with
+their last known state rather than vanishing.
+
 ## Configuration
 
 Everything the app knows lives in one readable file, `/opt/p0-monitoring/config.yaml`:
@@ -184,8 +220,11 @@ capabilities:
   energy: { available: true, source: model, reason: "no domains under /sys/class/powercap" }
 rules:
   - { type: label, key: app, value: drone-sitl }
+machines:
+  - { name: hub,  address: local,        role: hub  }
+  - { name: test, address: 192.168.0.69, role: node }
 exclusions:
-  - { type: project, value: p0-monitoring-stack }
+  - { type: project, value: p0-monitoring }
 probes:
   - { type: http, port: 8080, path: /health }
 ```
@@ -200,10 +239,11 @@ Worth knowing before you invest time:
 
 - **Docker only.** Kubernetes support is designed but not implemented; screen 1 shows it
   greyed out.
-- **No reconciler yet.** A container that appears later is picked up for CPU, memory and
-  energy on its own, but its QoS probe needs a trip through *Add or remove containers*.
-- **No authentication on the app.** It holds the Docker socket, which is root-equivalent.
-  Do not expose port 8000 beyond a trusted network.
+- **A node's code does not update itself**, only its configuration. Changing the app means
+  `git pull` and a rebuild on each machine.
+- **Nothing is authenticated**, neither the app nor the collector ports nor the endpoint a
+  node fetches its configuration from. It is a LAN tool. The app holds the Docker socket,
+  which is root-equivalent — do not expose it beyond a trusted network.
 - **No alerting.** Dashboards only.
 - **HTTP probes only.** TCP and domain-specific probes are not implemented.
 - **Grafana defaults to `admin`/`admin`.** Change it.

@@ -15,6 +15,29 @@
  "templating": {
   "list": [
    {
+    "name": "cluster",
+    "label": "Machine",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "prometheus"
+    },
+    "query": "label_values(target_info, cluster)",
+    "refresh": 2,
+    "includeAll": true,
+    "multi": true,
+    "current": {
+     "selected": true,
+     "text": [
+      "All"
+     ],
+     "value": [
+      "$__all"
+     ]
+    },
+    "options": []
+   },
+   {
     "name": "namespace",
     "label": "Namespace",
     "type": "query",
@@ -22,7 +45,7 @@
      "type": "prometheus",
      "uid": "prometheus"
     },
-    "query": "label_values(target_info, namespace)",
+    "query": "label_values(target_info{cluster=~\"$cluster\"}, namespace)",
     "refresh": 2,
     "includeAll": true,
     "multi": true,
@@ -45,7 +68,7 @@
      "type": "prometheus",
      "uid": "prometheus"
     },
-    "query": "label_values(target_info{namespace=~\"$namespace\"}, pod)",
+    "query": "label_values(target_info{cluster=~\"$cluster\", namespace=~\"$namespace\"}, pod)",
     "refresh": 2,
     "includeAll": true,
     "multi": true,
@@ -58,22 +81,6 @@
       "$__all"
      ]
     },
-    "options": []
-   },
-   {
-    "name": "machine",
-    "label": "Machine",
-    "type": "query",
-    "datasource": {
-     "type": "prometheus",
-     "uid": "prometheus"
-    },
-    "query": "label_values(container_cpu_usage_seconds_total, cluster)",
-    "refresh": 2,
-    "includeAll": false,
-    "multi": false,
-    "hide": 2,
-    "current": {},
     "options": []
    }
   ]
@@ -134,7 +141,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "(count(container_info{namespace=~\"$namespace\", pod=~\"$pod\", monitored=\"1\"})) or vector(0)",
+     "expr": "(count(last_over_time(container_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", monitored=\"1\"}[10m]))) or vector(0)",
      "refId": "A",
      "instant": true
     }
@@ -183,7 +190,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "(count(container_info{namespace=~\"$namespace\", pod=~\"$pod\", monitored=\"1\", state=\"running\"})) or vector(0)",
+     "expr": "(count(last_over_time(container_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", monitored=\"1\", state=\"running\"}[10m]))) or vector(0)",
      "refId": "A",
      "instant": true
     }
@@ -232,7 +239,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "(count(container_info{namespace=~\"$namespace\", pod=~\"$pod\", monitored=\"1\", state!=\"running\"})) or vector(0)",
+     "expr": "(count(last_over_time(container_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", monitored=\"1\", state!=\"running\"}[10m]))) or vector(0)",
      "refId": "A",
      "instant": true
     }
@@ -425,6 +432,7 @@
        "monitored": true
       },
       "renameByName": {
+       "cluster": "machine",
        "namespace": "namespace",
        "pod": "container",
        "ip": "ip",
@@ -440,18 +448,19 @@
        "Value #H": "disk write (B/s)"
       },
       "indexByName": {
-       "namespace": 0,
-       "pod": 1,
-       "ip": 2,
-       "state": 3,
-       "image": 4,
-       "Value #B": 5,
-       "Value #C": 6,
-       "Value #D": 7,
-       "Value #E": 8,
-       "Value #F": 9,
-       "Value #G": 10,
-       "Value #H": 11
+       "cluster": 0,
+       "namespace": 1,
+       "pod": 2,
+       "ip": 3,
+       "state": 4,
+       "image": 5,
+       "Value #B": 6,
+       "Value #C": 7,
+       "Value #D": 8,
+       "Value #E": 9,
+       "Value #F": 10,
+       "Value #G": 11,
+       "Value #H": 12
       }
      }
     }
@@ -462,7 +471,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "container_info{namespace=~\"$namespace\", pod=~\"$pod\", monitored=\"1\"}",
+     "expr": "last_over_time(container_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", monitored=\"1\"}[10m])",
      "refId": "A",
      "instant": true,
      "format": "table"
@@ -472,7 +481,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) * 1000",
+     "expr": "sum by(pod) (rate(container_cpu_usage_seconds_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) * 1000",
      "refId": "B",
      "instant": true,
      "format": "table"
@@ -482,7 +491,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"} and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) / 1024 / 1024",
+     "expr": "sum by(pod) (container_memory_working_set_bytes{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"} and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) / 1024 / 1024",
      "refId": "C",
      "instant": true,
      "format": "table"
@@ -492,7 +501,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(pod) (rate(kepler_container_package_joules_total[5m]) * on(container_id) group_left(pod) target_info{namespace=~\"$namespace\", pod=~\"$pod\"})",
+     "expr": "sum by(pod) (rate(kepler_container_package_joules_total[5m]) * on(container_id) group_left(pod) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"})",
      "refId": "D",
      "instant": true,
      "format": "table"
@@ -502,7 +511,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(pod) (rate(container_network_receive_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) * 8 / 1000",
+     "expr": "sum by(pod) (rate(container_network_receive_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) * 8 / 1000",
      "refId": "E",
      "instant": true,
      "format": "table"
@@ -512,7 +521,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(pod) (rate(container_network_transmit_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) * 8 / 1000",
+     "expr": "sum by(pod) (rate(container_network_transmit_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) * 8 / 1000",
      "refId": "F",
      "instant": true,
      "format": "table"
@@ -522,7 +531,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(pod) (rate(container_fs_reads_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"})",
+     "expr": "sum by(pod) (rate(container_fs_reads_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"})",
      "refId": "G",
      "instant": true,
      "format": "table"
@@ -532,7 +541,7 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(pod) (rate(container_fs_writes_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"})",
+     "expr": "sum by(pod) (rate(container_fs_writes_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"})",
      "refId": "H",
      "instant": true,
      "format": "table"
@@ -602,9 +611,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(namespace,pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) * 1000",
+     "expr": "sum by(cluster,namespace,pod) (rate(container_cpu_usage_seconds_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) * 1000",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -673,9 +682,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "topk(5, sum by(namespace,pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) * 1000)",
+     "expr": "topk(5, sum by(cluster,namespace,pod) (rate(container_cpu_usage_seconds_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) * 1000)",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -742,9 +751,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(namespace,pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"} and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) / 1024 / 1024",
+     "expr": "sum by(cluster,namespace,pod) (container_memory_working_set_bytes{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"} and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) / 1024 / 1024",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -813,9 +822,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "topk(5, sum by(namespace,pod) (container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"} and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) / 1024 / 1024)",
+     "expr": "topk(5, sum by(cluster,namespace,pod) (container_memory_working_set_bytes{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"} and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) / 1024 / 1024)",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -882,9 +891,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(namespace,pod) (rate(kepler_container_package_joules_total[5m]) * on(container_id) group_left(pod,namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"})",
+     "expr": "sum by(cluster,namespace,pod) (rate(kepler_container_package_joules_total[5m]) * on(container_id) group_left(cluster,namespace,pod) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"})",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -953,9 +962,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "topk(5, sum by(namespace,pod) (rate(kepler_container_package_joules_total[5m]) * on(container_id) group_left(pod,namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}))",
+     "expr": "topk(5, sum by(cluster,namespace,pod) (rate(kepler_container_package_joules_total[5m]) * on(container_id) group_left(cluster,namespace,pod) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}))",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1010,9 +1019,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(namespace,pod) (increase(kepler_container_package_joules_total[5m]) * on(container_id) group_left(pod,namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"})",
+     "expr": "sum by(cluster,namespace,pod) (increase(kepler_container_package_joules_total[5m]) * on(container_id) group_left(cluster,namespace,pod) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"})",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1081,9 +1090,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "topk(5, sum by(namespace,pod) (increase(kepler_container_package_joules_total[5m]) * on(container_id) group_left(pod,namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}))",
+     "expr": "topk(5, sum by(cluster,namespace,pod) (increase(kepler_container_package_joules_total[5m]) * on(container_id) group_left(cluster,namespace,pod) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}))",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1150,9 +1159,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(namespace,pod) (rate(container_network_receive_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) * 8",
+     "expr": "sum by(cluster,namespace,pod) (rate(container_network_receive_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) * 8",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1221,9 +1230,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "topk(5, sum by(namespace,pod) (rate(container_network_receive_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) * 8)",
+     "expr": "topk(5, sum by(cluster,namespace,pod) (rate(container_network_receive_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) * 8)",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1278,9 +1287,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(namespace,pod) (rate(container_network_transmit_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) * 8",
+     "expr": "sum by(cluster,namespace,pod) (rate(container_network_transmit_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) * 8",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1349,9 +1358,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "topk(5, sum by(namespace,pod) (rate(container_network_transmit_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}) * 8)",
+     "expr": "topk(5, sum by(cluster,namespace,pod) (rate(container_network_transmit_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}) * 8)",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1418,9 +1427,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(namespace,pod) (rate(container_fs_reads_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"})",
+     "expr": "sum by(cluster,namespace,pod) (rate(container_fs_reads_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"})",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1489,9 +1498,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "topk(5, sum by(namespace,pod) (rate(container_fs_reads_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}))",
+     "expr": "topk(5, sum by(cluster,namespace,pod) (rate(container_fs_reads_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}))",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1546,9 +1555,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum by(namespace,pod) (rate(container_fs_writes_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"})",
+     "expr": "sum by(cluster,namespace,pod) (rate(container_fs_writes_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"})",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1617,9 +1626,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "topk(5, sum by(namespace,pod) (rate(container_fs_writes_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (pod, namespace) target_info{namespace=~\"$namespace\", pod=~\"$pod\"}))",
+     "expr": "topk(5, sum by(cluster,namespace,pod) (rate(container_fs_writes_bytes_total{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\", pod!=\"\"}[5m]) and on (cluster, pod, namespace) target_info{cluster=~\"$cluster\", namespace=~\"$namespace\", pod=~\"$pod\"}))",
      "refId": "A",
-     "legendFormat": "{{namespace}}/{{pod}}"
+     "legendFormat": "{{cluster}}/{{pod}}"
     }
    ]
   },
@@ -1686,9 +1695,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "(sum by(probe,dst) (rate(latency{job=\"cloudprober\"}[$__rate_interval])) / clamp_min(sum by(probe,dst) (rate(total{job=\"cloudprober\"}[$__rate_interval])), 0.000001)) / 1000",
+     "expr": "(sum by(cluster,probe,dst) (rate(latency{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval])) / clamp_min(sum by(cluster,probe,dst) (rate(total{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval])), 0.000001)) / 1000",
      "refId": "A",
-     "legendFormat": "{{probe}}"
+     "legendFormat": "{{cluster}}/{{probe}}"
     }
    ]
   },
@@ -1743,9 +1752,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "stddev_over_time( ( ( sum by (probe,dst) (increase(latency{job=\"cloudprober\"}[15s])) / clamp_min(sum by (probe,dst) (increase(success{job=\"cloudprober\"}[15s])), 1) ) / 1000 )[5m:15s] )",
+     "expr": "stddev_over_time( ( ( sum by (cluster,probe,dst) (increase(latency{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[15s])) / clamp_min(sum by (cluster,probe,dst) (increase(success{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[15s])), 1) ) / 1000 )[5m:15s] )",
      "refId": "A",
-     "legendFormat": "{{probe}}"
+     "legendFormat": "{{cluster}}/{{probe}}"
     }
    ]
   },
@@ -1801,9 +1810,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "100 * sum by(probe,dst) (rate(success{job=\"cloudprober\"}[$__rate_interval])) / clamp_min(sum by(probe,dst) (rate(total{job=\"cloudprober\"}[$__rate_interval])), 0.000001)",
+     "expr": "100 * sum by(cluster,probe,dst) (rate(success{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval])) / clamp_min(sum by(cluster,probe,dst) (rate(total{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval])), 0.000001)",
      "refId": "A",
-     "legendFormat": "{{probe}}"
+     "legendFormat": "{{cluster}}/{{probe}}"
     }
    ]
   },
@@ -1859,9 +1868,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "100 * sum by(probe,dst) (rate(failure{job=\"cloudprober\"}[$__rate_interval])) / clamp_min(sum by(probe,dst) (rate(total{job=\"cloudprober\"}[$__rate_interval])), 0.000001)",
+     "expr": "100 * sum by(cluster,probe,dst) (rate(failure{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval])) / clamp_min(sum by(cluster,probe,dst) (rate(total{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval])), 0.000001)",
      "refId": "A",
-     "legendFormat": "{{probe}}"
+     "legendFormat": "{{cluster}}/{{probe}}"
     }
    ]
   },
@@ -1917,9 +1926,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "100 * sum by(probe,dst) (rate(timeouts{job=\"cloudprober\"}[$__rate_interval])) / clamp_min(sum by(probe,dst) (rate(total{job=\"cloudprober\"}[$__rate_interval])), 0.000001)",
+     "expr": "100 * sum by(cluster,probe,dst) (rate(timeouts{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval])) / clamp_min(sum by(cluster,probe,dst) (rate(total{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval])), 0.000001)",
      "refId": "A",
-     "legendFormat": "{{probe}}"
+     "legendFormat": "{{cluster}}/{{probe}}"
     }
    ]
   },
@@ -1975,9 +1984,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "100 * (sum by(probe,dst) (rate(failure{job=\"cloudprober\"}[$__rate_interval])) + sum by(probe,dst) (rate(timeouts{job=\"cloudprober\"}[$__rate_interval]))) / clamp_min(sum by(probe,dst) (rate(total{job=\"cloudprober\"}[$__rate_interval])), 0.000001)",
+     "expr": "100 * (sum by(cluster,probe,dst) (rate(failure{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval])) + sum by(cluster,probe,dst) (rate(timeouts{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval]))) / clamp_min(sum by(cluster,probe,dst) (rate(total{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval])), 0.000001)",
      "refId": "A",
-     "legendFormat": "{{probe}}"
+     "legendFormat": "{{cluster}}/{{probe}}"
     }
    ]
   },
@@ -2032,9 +2041,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "60 * sum by(probe,dst) (rate(total{job=\"cloudprober\"}[$__rate_interval]))",
+     "expr": "60 * sum by(cluster,probe,dst) (rate(total{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval]))",
      "refId": "A",
-     "legendFormat": "{{probe}}"
+     "legendFormat": "{{cluster}}/{{probe}}"
     }
    ]
   },
@@ -2089,9 +2098,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "60 * sum by(probe,dst) (rate(resp_code{job=\"cloudprober\", code=\"200\"}[$__rate_interval]))",
+     "expr": "60 * sum by(cluster,probe,dst) (rate(resp_code{job=~\"cloudprober-.*\", cluster=~\"$cluster\", code=\"200\"}[$__rate_interval]))",
      "refId": "A",
-     "legendFormat": "{{probe}}"
+     "legendFormat": "{{cluster}}/{{probe}}"
     }
    ]
   },
@@ -2146,9 +2155,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "60 * sum by(probe,dst) (rate(failure{job=\"cloudprober\"}[$__rate_interval]))",
+     "expr": "60 * sum by(cluster,probe,dst) (rate(failure{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval]))",
      "refId": "A",
-     "legendFormat": "{{probe}}"
+     "legendFormat": "{{cluster}}/{{probe}}"
     }
    ]
   },
@@ -2203,9 +2212,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "60 * sum by(probe,dst) (rate(timeouts{job=\"cloudprober\"}[$__rate_interval]))",
+     "expr": "60 * sum by(cluster,probe,dst) (rate(timeouts{job=~\"cloudprober-.*\", cluster=~\"$cluster\"}[$__rate_interval]))",
      "refId": "A",
-     "legendFormat": "{{probe}}"
+     "legendFormat": "{{cluster}}/{{probe}}"
     }
    ]
   },
@@ -2273,9 +2282,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "100 - (avg(rate(node_cpu_seconds_total{job=\"node\", mode=\"idle\"}[5m])) * 100)",
+     "expr": "100 - (avg by (cluster) (rate(node_cpu_seconds_total{job=~\"node-.*\", cluster=~\"$cluster\", mode=\"idle\"}[5m])) * 100)",
      "refId": "A",
-     "legendFormat": "$machine"
+     "legendFormat": "{{cluster}}"
     }
    ]
   },
@@ -2330,9 +2339,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum(rate(node_cpu_seconds_total{job=\"node\", mode!=\"idle\"}[5m]))",
+     "expr": "sum by (cluster) (rate(node_cpu_seconds_total{job=~\"node-.*\", cluster=~\"$cluster\", mode!=\"idle\"}[5m]))",
      "refId": "A",
-     "legendFormat": "$machine"
+     "legendFormat": "{{cluster}}"
     }
    ]
   },
@@ -2388,9 +2397,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "100 * (1 - (node_memory_MemAvailable_bytes{job=\"node\"} / node_memory_MemTotal_bytes{job=\"node\"}))",
+     "expr": "100 * (1 - (sum by (cluster) (node_memory_MemAvailable_bytes{job=~\"node-.*\", cluster=~\"$cluster\"}) / sum by (cluster) (node_memory_MemTotal_bytes{job=~\"node-.*\", cluster=~\"$cluster\"})))",
      "refId": "A",
-     "legendFormat": "$machine"
+     "legendFormat": "{{cluster}}"
     }
    ]
   },
@@ -2445,9 +2454,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "(node_memory_MemTotal_bytes{job=\"node\"} - node_memory_MemAvailable_bytes{job=\"node\"}) / 1024 / 1024 / 1024",
+     "expr": "sum by (cluster) (node_memory_MemTotal_bytes{job=~\"node-.*\", cluster=~\"$cluster\"} - node_memory_MemAvailable_bytes{job=~\"node-.*\", cluster=~\"$cluster\"}) / 1024 / 1024 / 1024",
      "refId": "A",
-     "legendFormat": "$machine"
+     "legendFormat": "{{cluster}}"
     }
    ]
   },
@@ -2503,9 +2512,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "100 - (node_filesystem_avail_bytes{job=\"node\", mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"node\", mountpoint=\"/\"} * 100)",
+     "expr": "100 - (sum by (cluster) (node_filesystem_avail_bytes{job=~\"node-.*\", cluster=~\"$cluster\", mountpoint=\"/\"}) / sum by (cluster) (node_filesystem_size_bytes{job=~\"node-.*\", cluster=~\"$cluster\", mountpoint=\"/\"}) * 100)",
      "refId": "A",
-     "legendFormat": "$machine"
+     "legendFormat": "{{cluster}}"
     }
    ]
   },
@@ -2560,9 +2569,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "(node_filesystem_size_bytes{job=\"node\", mountpoint=\"/\"} - node_filesystem_avail_bytes{job=\"node\", mountpoint=\"/\"}) / 1024 / 1024 / 1024",
+     "expr": "sum by (cluster) (node_filesystem_size_bytes{job=~\"node-.*\", cluster=~\"$cluster\", mountpoint=\"/\"} - node_filesystem_avail_bytes{job=~\"node-.*\", cluster=~\"$cluster\", mountpoint=\"/\"}) / 1024 / 1024 / 1024",
      "refId": "A",
-     "legendFormat": "$machine"
+     "legendFormat": "{{cluster}}"
     }
    ]
   },
@@ -2617,9 +2626,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum(rate(kepler_node_package_joules_total[5m]))",
+     "expr": "sum by (cluster) (rate(kepler_node_package_joules_total{cluster=~\"$cluster\"}[5m]))",
      "refId": "A",
-     "legendFormat": "$machine"
+     "legendFormat": "{{cluster}}"
     }
    ]
   },
@@ -2674,9 +2683,9 @@
       "type": "prometheus",
       "uid": "prometheus"
      },
-     "expr": "sum(increase(kepler_node_package_joules_total[5m]))",
+     "expr": "sum by (cluster) (increase(kepler_node_package_joules_total{cluster=~\"$cluster\"}[5m]))",
      "refId": "A",
-     "legendFormat": "$machine"
+     "legendFormat": "{{cluster}}"
     }
    ]
   }
