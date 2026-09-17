@@ -80,6 +80,9 @@ def containers(all_states=False):
             # 'target' is the stable name: Compose service > container name
             "target": service or name,
             "identity_source": "compose" if service else "name",
+            # Docker names are already stable, so a container is its own workload. The
+            # field exists on both so the rules engine never has to ask which it holds.
+            "workload": service or name,
             "from_compose": from_compose,
             "labels": {k: v for k, v in labels.items() if not k.startswith("com.docker.compose")},
             "ports": sorted({p["PrivatePort"] for p in (c.get("Ports") or []) if p.get("PrivatePort")}),

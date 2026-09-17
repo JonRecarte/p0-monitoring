@@ -33,6 +33,9 @@
 Plus the host itself — CPU, RAM, disk, network — so you can tell *"my container is slow"*
 from *"the machine is saturated"*.
 
+It measures **Docker hosts and Kubernetes clusters side by side**, in one dashboard. A
+container and a pod are the same kind of row; the machine they live on is a filter.
+
 Everything lands in a single Grafana dashboard: an inventory table, per-container time
 series with Top 5 rankings, a full QoS section, and a summary of the machine.
 
@@ -151,6 +154,9 @@ ss -ltn | grep -E ':(3000|8000|8080|9090|9100|9102|9313)'
 Four of them **must** sit beside what they measure, because they read the local kernel.
 That is the whole reason a node exists. Prometheus and Grafana only live on the hub.
 
+**None of this is installed into a Kubernetes cluster.** A cluster already runs the
+equivalent, so it is scraped through its API server instead — see *Adding a machine*.
+
 Two need privileges, and screen 5 says so before you commit.
 
 **The app is not in the data path.** Stop it, rebuild it, break it — the collectors keep
@@ -186,6 +192,9 @@ maintain a second set of panels, the app fills those labels in **at scrape time*
 | `pod` | the container |
 
 One set of panels, and the dropdowns say *Namespace* and *Container* like you would expect.
+On a Kubernetes machine there is nothing to translate — those three labels are native, and
+the kubelet's cAdvisor already sets them. Which is the point: the same panel, filled from
+two very different places.
 
 ### It gives the energy collector the names it lacks
 
@@ -231,10 +240,63 @@ have to touch your own containers to make QoS work.
 
 ## Adding a machine
 
-From **Status → Machines**, give the node a name and an address — and its ports, if that
-machine had to move any. The app tells you exactly what to run there, hands the node its configuration when it asks, and starts scraping it.
-Removing one is the same screen — the app stops scraping, and tells you to stop the compose
-on that machine, which it cannot do for you.
+A machine is one of two things, and you say which.
+
+### A Docker host
+
+Give it a name and an address — and its ports, if that machine had to move any. The app
+tells you exactly what to run there, hands the node its configuration when it asks, and
+starts scraping it. Removing one is the same screen: the app stops scraping, and tells you
+to stop the compose on that machine, which it cannot do for you.
+
+### A Kubernetes cluster
+
+A cluster needs no node half, because Kubernetes already is one: the kubelet ships
+cAdvisor, and the API server can reach every pod. So you give an API server address and a
+read-only token, and **nothing is installed into your cluster**.
+
+Apply this there, and paste what the last line prints:
+
+```bash
+kubectl create ns p0-monitoring
+kubectl -n p0-monitoring create sa scraper
+kubectl create clusterrole p0-scraper \
+  --verb=get,list,watch \
+  --resource=nodes,nodes/proxy,nodes/metrics,pods,pods/proxy,services,services/proxy
+kubectl create clusterrolebinding p0-scraper \
+  --clusterrole=p0-scraper --serviceaccount=p0-monitoring:scraper
+kubectl -n p0-monitoring create token scraper --duration=8760h
+```
+
+Everything is scraped **through the API server's proxy**, so a cluster is one address and
+one token: no NodePort to open, no Ingress to configure, no route to the pod network.
+
+The token is checked before the cluster is saved, and the app reports what it found — how
+many nodes, and whether Kepler and node-exporter are actually installed there. Often they
+are not, and then **that cluster has no energy and no host metrics**. The app says so when
+you add it, rather than leaving you to find an empty panel three days later.
+
+| | Docker host | Kubernetes cluster |
+|---|---|---|
+| **CPU, memory** | our cAdvisor | the kubelet's cAdvisor — nothing installed |
+| **Inventory** | the app, on that machine | the hub, from the cluster's API |
+| **Host metrics** | our node-exporter | only if node-exporter is already there |
+| **Energy** | our Kepler | only if Kepler is already there |
+| **QoS** | our cloudprober | **not yet** — see Limitations |
+| **What you install there** | five containers | nothing. A ServiceAccount |
+
+### One host can be both
+
+A server running Docker *and* a cluster inside it — `kind`, k3d, minikube — is two
+machines as far as this is concerned, and you add it twice:
+
+```yaml
+- { name: lab-host, address: 192.168.0.70,      role: node, kind: docker }
+- { name: lab,      address: 192.168.0.70:6443, role: node, kind: kubernetes }
+```
+
+`lab-host` answers *"is the machine saturated?"*. `lab` answers *"which pod?"*. Same
+dashboard, told apart by the **Machine** filter.
 
 ### How the two halves talk
 
@@ -264,9 +326,9 @@ capabilities:
 rules:
   - { type: label, key: app, value: drone-sitl }
 machines:
-  - { name: hub,  address: local,        role: hub  }
-  - { name: test, address: 192.168.0.69, role: node }
-  - { name: lab,  address: 192.168.0.70, role: node, ports: { grafana: 3300 } }
+  - { name: hub,  address: local,             role: hub,  kind: docker }
+  - { name: test, address: 192.168.0.69,      role: node, kind: docker, ports: { cadvisor: 8081 } }
+  - { name: lab,  address: 192.168.0.70:6443, role: node, kind: kubernetes }
 exclusions:
   - { type: project, value: p0-monitoring }
 probes:
@@ -281,8 +343,15 @@ demand. Back up one file; move to another machine by copying one file.
 
 Worth knowing before you invest time:
 
-- **Docker only.** Kubernetes support is designed but not implemented; screen 1 shows it
-  greyed out.
+- **A cluster gives CPU, memory and inventory.** Energy and host metrics only if Kepler
+  and node-exporter are already installed there: this app does not deploy into a cluster
+  it did not create.
+- **No QoS on a cluster yet.** Reaching a Service from outside needs a NodePort or an
+  Ingress, and there is no answer to that which is true of every cluster. Probes are
+  generated for Docker machines only.
+- **A cluster token is stored readable** at `/opt/p0-monitoring/generated/tokens/<name>`,
+  mode `0644`, because Prometheus runs as `nobody` and has to read it at scrape time. It
+  is a read-only metrics token, and it never goes into `config.yaml`.
 - **A node's code does not update itself**, only its configuration. Changing the app means
   `git pull` and a rebuild on each machine.
 - **Nothing is authenticated**, neither the app nor the collector ports nor the endpoint a

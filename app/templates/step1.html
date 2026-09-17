@@ -1,15 +1,11 @@
-{% extends "base.html" %}{% block title %}Environment{% endblock %}{% block body %}
-<h1>Environment</h1>
+{% extends "base.html" %}{% block title %}This machine{% endblock %}{% block body %}
+<h1>This machine</h1>
 <form method="post"><div class="panel">
-<label><span>Environment</span>
-  <select name="environment">
-    <option value="docker" {% if s.environment=='docker' %}selected{% endif %}>Docker host</option>
-    <option value="kubernetes" disabled>Kubernetes clusters — not yet</option>
-  </select>
-</label>
 <label><span>Name of this machine</span>
   <input type="text" name="machine" value="{{ hub.name if hub else '' }}" placeholder="hub" required>
 </label>
+<p class="hint">It labels everything measured here, and it is what you will filter by in
+Grafana. Other machines and clusters are added later, from <em>Machines</em>.</p>
 <div class="actions"><button type="submit">Continue</button></div>
 </div></form>
 {% endblock %}

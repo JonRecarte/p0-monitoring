@@ -11,6 +11,7 @@ import capabilities
 import docker_api
 import generator
 import inventory
+import k8s_api
 import reconciler
 import role
 import rules
@@ -64,19 +65,23 @@ def hub_only(view):
     return wrapped
 
 
-# ------------------------------------------------------------- step 1: environment
+# --------------------------------------------------------------- step 1: this machine
+# There used to be one global "environment" here, chosen once for the whole
+# installation. It was wrong: machines can be different things, and the same host can be
+# a Docker host AND run a cluster. What a machine is now belongs to the machine, and is
+# asked on the Machines screen. The hub is always a Docker host — it runs as a compose.
 @app.route("/", methods=["GET", "POST"])
 @hub_only
 def step1_environment():
     s = _s()
     if request.method == "POST":
-        s["environment"] = request.form.get("environment", "docker")
         name = (request.form.get("machine") or "").strip() or "hub"
         hub = state.hub(s)
         if hub:
             hub["name"] = name
         else:
-            s["machines"].insert(0, {"name": name, "address": "local", "role": "hub"})
+            s["machines"].insert(0, {"name": name, "address": "local",
+                                     "role": "hub", "kind": "docker"})
         state.save(s)
         return redirect(url_for("step2_capabilities"))
     return render_template("step1.html", s=s, hub=state.hub(s), step=1)
@@ -87,7 +92,7 @@ def step1_environment():
 @hub_only
 def step2_capabilities():
     s = _s()
-    if not s.get("environment"):
+    if not state.hub(s):
         return redirect(url_for("step1_environment"))
     report = capabilities.report()
     if request.method == "POST":
@@ -184,6 +189,7 @@ def machines():
         if request.form.get("remove"):
             name = request.form["remove"]
             s["machines"] = [m for m in s["machines"] if m["name"] != name]
+            state.drop_token(name)          # a cluster's credential goes with it
             state.save(s)
             generator.generate_hub(s)
             generator.reload_prometheus()
@@ -192,29 +198,56 @@ def machines():
         else:
             name = (request.form.get("name") or "").strip()
             address = (request.form.get("address") or "").strip()
+            kind = request.form.get("kind", "docker")
+            token = (request.form.get("token") or "").strip()
             if not name or not address:
-                message = "A node needs both a name and an address."
+                message = "A machine needs both a name and an address."
             elif state.find(s, name):
                 message = f"There is already a machine called {name}."
+            elif kind == "kubernetes" and not token:
+                message = "A cluster needs a token: the hub reaches it through its API."
             else:
-                # Only what actually differs is stored, so the common case leaves no
-                # trace and a default that changes one day is not frozen into old state.
-                custom = {}
-                for key, default in state.DEFAULT_PORTS.items():
-                    raw = (request.form.get(f"port_{key}") or "").strip()
-                    if raw.isdigit() and int(raw) != default:
-                        custom[key] = int(raw)
-                entry = {"name": name, "address": address, "role": "node"}
-                if custom:
-                    entry["ports"] = custom
-                s["machines"].append(entry)
-                state.save(s)
-                generator.generate_hub(s)
-                generator.reload_prometheus()
-                added = name
+                # A cluster is checked BEFORE it is saved. A Docker node cannot be: it
+                # may legitimately not be up yet, since the user still has to go and
+                # start it. A cluster is already running or it is not a cluster.
+                ok, detail = (True, None)
+                if kind == "kubernetes":
+                    ok, detail = k8s_api.reachable(address, token)
+                    if ok:
+                        f = k8s_api.survey(address, token)
+                        missing = [n for n, present in
+                                   [("Kepler — no energy for this cluster", f["kepler"]),
+                                    ("node-exporter — no host metrics", f["node_exporter"])]
+                                   if not present]
+                        detail = f"{detail} · {len(f['nodes'])} node(s) · CPU and memory " \
+                                 f"from the kubelet"
+                        if missing:
+                            detail += ". Not installed there: " + "; ".join(missing)
+                if not ok:
+                    message = f"Could not reach {address}: {detail}"
+                else:
+                    # Only what actually differs is stored, so the common case leaves no
+                    # trace and a default that changes one day is not frozen into old state.
+                    custom = {}
+                    for key, default in state.DEFAULT_PORTS.items():
+                        raw = (request.form.get(f"port_{key}") or "").strip()
+                        if raw.isdigit() and int(raw) != default:
+                            custom[key] = int(raw)
+                    entry = {"name": name, "address": address,
+                             "role": "node", "kind": kind}
+                    if custom:
+                        entry["ports"] = custom
+                    if kind == "kubernetes":
+                        state.save_token(name, token)
+                    s["machines"].append(entry)
+                    state.save(s)
+                    generator.generate_hub(s)
+                    generator.reload_prometheus()
+                    added, message = name, detail
     return render_template("machines.html", s=s, health=_machine_health(s),
                            message=message, added=added,
-                           hub_address=request.host, defaults=state.DEFAULT_PORTS, step=0)
+                           hub_address=request.host, defaults=state.DEFAULT_PORTS,
+                           kinds=state.KINDS, step=0)
 
 
 def _machine_health(s):
@@ -274,6 +307,34 @@ def metrics():
     import metrics as metrics_mod
     cfg = RECONCILER.config or {"rules": [], "exclusions": [], "probes": []}
     return Response(metrics_mod.render(cfg), mimetype="text/plain; version=0.0.4")
+
+
+@app.route("/metrics/<name>")
+@hub_only
+def metrics_for(name):
+    """A cluster's inventory, served by the hub.
+
+    A Docker node publishes its own on /metrics, because only it can see its daemon. A
+    cluster has no node half to do that, so the hub asks its API and publishes the same
+    two series here. Prometheus stamps `cluster` either way, so the dashboard cannot
+    tell the difference.
+    """
+    import metrics as metrics_mod
+    s = _s()
+    machine = state.find(s, name)
+    if not machine or state.kind(machine) != "kubernetes":
+        return Response("# no such cluster\n", status=404,
+                        mimetype="text/plain; version=0.0.4")
+    cfg = {k: s.get(k) for k in ("rules", "exclusions", "probes")}
+    try:
+        everything = inventory.for_machine(machine, all_states=True)
+    except Exception as exc:
+        # An empty body would read as "this cluster has nothing", which is a lie. A 503
+        # makes the target go down, which is what `silent` on the status page means.
+        return Response(f"# cannot reach {name}: {exc}\n", status=503,
+                        mimetype="text/plain; version=0.0.4")
+    return Response(metrics_mod.render(cfg, everything),
+                    mimetype="text/plain; version=0.0.4")
 
 
 @app.route("/api/state")

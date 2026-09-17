@@ -11,8 +11,92 @@ scrape_configs:
 {# A hub reaches its own collectors by service name on the shared network, where the
    ports never move. Only a remote machine is addressed by its published ports. #}
 {% set p = m.ports or {} %}
+{% set kind = m.kind or 'docker' %}
 
-  # ---------------------------------------------------------- {{ m.name }}{{ ' (hub)' if m.role == 'hub' }}
+  # ------------------------------------------------- {{ m.name }} · {{ kind }}{{ ' · hub' if m.role == 'hub' }}
+{% if kind == 'kubernetes' %}
+{# A cluster is reached through ONE door: the API server. Its proxy subresource reaches
+   the kubelet and every pod, so there is no NodePort to open, no Ingress to configure
+   and no route to the pod network. One address, one token. #}
+{% set api = m.address if '://' in m.address else 'https://' ~ m.address %}
+{% set auth %}
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/tokens/{{ m.name }}
+    tls_config:
+      insecure_skip_verify: true
+{% endset %}
+
+  # inventory: served by the hub's own app, which asks this cluster's API for its pods
+  - job_name: inventory-{{ m.name }}
+    metrics_path: /metrics/{{ m.name }}
+    static_configs:
+      - targets: ["app:8000"]
+        labels: { cluster: {{ m.name }} }
+
+  # CPU and memory: the kubelet already runs cAdvisor, so nothing is installed. It
+  # labels its series `namespace` and `pod` itself — in Kubernetes the dimensions the
+  # dashboards want are native, and none of the Docker translation below is needed.
+  - job_name: cadvisor-{{ m.name }}
+    scheme: https
+{{ auth }}
+    kubernetes_sd_configs:
+      - role: node
+        api_server: {{ api }}
+{{ auth | indent(4, true) }}
+    relabel_configs:
+      - target_label: __address__
+        replacement: {{ api | replace('https://', '') }}
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: "(.+)"
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+      - target_label: cluster
+        replacement: {{ m.name }}
+    metric_relabel_configs:
+      # The node's own cgroup tree — `/`, `/kubepods.slice`, `/system.slice` — carries no
+      # pod, and its numbers dwarf every real workload: on the test cluster the root
+      # cgroup alone reports 266.525 CPU-seconds against a few hundred for a pod. Same
+      # problem as Kepler's pseudo-containers in Docker, same answer: drop at the source,
+      # so it is part of the definition of the signal and not of every panel.
+      - source_labels: [pod]
+        regex: "^$"
+        action: drop
+
+{# node-exporter and Kepler are scraped only if somebody already put them in the
+   cluster: D24 says this app measures what is there and installs nothing into
+   someone else's cluster. If they are absent these jobs simply find no targets,
+   which is the honest outcome and needs no configuration. #}
+{% for job, match, port in [('node', 'node-exporter', p.get('node', 9100)),
+                            ('kepler', 'kepler', p.get('kepler', 9102))] %}
+  - job_name: {{ job }}-{{ m.name }}
+    scheme: https
+{{ auth }}
+    kubernetes_sd_configs:
+      - role: pod
+        api_server: {{ api }}
+{{ auth | indent(4, true) }}
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_name]
+        regex: ".*{{ match }}.*"
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_phase]
+        regex: Running
+        action: keep
+      - target_label: __address__
+        replacement: {{ api | replace('https://', '') }}
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_pod_name]
+        separator: ";"
+        regex: "(.+);(.+)"
+        target_label: __metrics_path__
+        replacement: /api/v1/namespaces/$1/pods/$2:{{ port }}/proxy/metrics
+      - target_label: cluster
+        replacement: {{ m.name }}
+{% endfor %}
+{# QoS is not generated for a cluster yet: reaching a Service from outside needs a
+   NodePort or an Ingress, and there is no answer to that which is true of every
+   cluster. Saying so is better than generating probes that quietly never succeed. #}
+{% else %}
   - job_name: inventory-{{ m.name }}
     static_configs:
       - targets: ["{{ 'app:8000' if local else m.address ~ ':' ~ p.get('app', 8000) }}"]
@@ -70,6 +154,7 @@ scrape_configs:
     static_configs:
       - targets: ["{{ 'cloudprober:9313' if local else m.address ~ ':' ~ p.get('cloudprober', 9313) }}"]
         labels: { cluster: {{ m.name }} }
+{% endif %}
 {% endfor %}
 
   - job_name: prometheus

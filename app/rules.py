@@ -20,7 +20,8 @@ def _matches(rule, c):
     if kind == "image":
         return fnmatch.fnmatch(c["image"], value)
     if kind == "name":
-        return fnmatch.fnmatch(c["name"], value) or fnmatch.fnmatch(c["target"], value)
+        return any(fnmatch.fnmatch(c.get(k) or "", value)
+                   for k in ("name", "target", "workload"))
     if kind == "project":
         return c["project"] == value
     if kind == "label":
@@ -75,6 +76,10 @@ def propose(selected, everything):
     images = {c["image"] for c in selected}
     if len(images) == 1:
         candidates.append({"type": "image", "value": images.pop()})
+    # by common workload: the one criterion that survives a pod being recreated
+    workloads = {c.get("workload") or c["target"] for c in selected}
+    if len(workloads) == 1:
+        candidates.append({"type": "name", "value": workloads.copy().pop() + "*"})
     # by common name prefix
     names = [c["target"] for c in selected]
     prefix = names[0]
@@ -90,8 +95,17 @@ def propose(selected, everything):
         if {c["id"] for c in everything if _matches(cand, c)} == selected_ids:
             return [cand]
 
-    # nothing generalises cleanly: name them one by one. Always exact, never silent.
-    return [{"type": "name", "value": c["target"]} for c in selected]
+    # Nothing generalises cleanly: name them one by one. Always exact, never silent.
+    # By workload where the individual name is ephemeral, because a rule that is exact
+    # today and matches nothing tomorrow is the same silent failure in slow motion.
+    seen, out = set(), []
+    for c in selected:
+        value = c["target"] if (c.get("workload") or c["target"]) == c["target"] \
+            else c["workload"] + "*"
+        if value not in seen:
+            seen.add(value)
+            out.append({"type": "name", "value": value})
+    return out
 
 
 _GENERATED_NAME = re.compile(r"^[a-z]+_[a-z]+$")

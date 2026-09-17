@@ -26,8 +26,55 @@ def ports(machine):
     """A machine's ports, defaults filled in."""
     return {**DEFAULT_PORTS, **(machine.get("ports") or {})}
 
+
+# What a machine can be. Declared per machine, never guessed: the user knows what they
+# have, and on an installation with several machines there is no single right answer to
+# "what environment is this?" — only to "what is THIS one?".
+KINDS = {"docker": "Docker host", "kubernetes": "Kubernetes cluster"}
+
+# Where a cluster's bearer token is kept. Not in config.yaml: that file is meant to be
+# read, shown and copied around. Prometheus mounts the generated directory, so the token
+# has to live under it to be readable at scrape time.
+TOKEN_DIR = os.path.join(os.environ.get("DATA_DIR", "/data"), "generated", "tokens")
+
+
+def kind(machine):
+    return machine.get("kind") or "docker"
+
+
+def token_path(name):
+    return os.path.join(TOKEN_DIR, name)
+
+
+def save_token(name, value):
+    os.makedirs(TOKEN_DIR, exist_ok=True)
+    path = token_path(name)
+    with open(path, "w") as fh:
+        fh.write(value.strip() + "\n")
+    # 0644 and not 0600: Prometheus runs as `nobody` in its image and has to read this
+    # at scrape time. It is a read-only metrics token on a LAN tool whose app already
+    # holds the Docker socket, so this is not the weakest link — but it is a real
+    # loosening and the README says so under Limitations.
+    os.chmod(path, 0o644)
+    return path
+
+
+def read_token(name):
+    try:
+        with open(token_path(name)) as fh:
+            return fh.read().strip()
+    except OSError:
+        return None
+
+
+def drop_token(name):
+    try:
+        os.remove(token_path(name))
+    except OSError:
+        pass
+
+
 EMPTY = {
-    "environment": None,
     # Every machine that is measured. The hub is one of them: a single machine is the
     # N=1 case of the same model, not a separate product.
     "machines": [],
@@ -50,6 +97,14 @@ def _migrate(data):
     """
     if "machine" in data and not data.get("machines"):
         data["machines"] = [{"name": data.pop("machine"), "address": "local", "role": "hub"}]
+
+    # `environment` used to be one global choice for the whole installation. It never
+    # reached the generated configuration, and it cannot be right once machines can be
+    # different things: the same host can be a Docker host AND run a cluster. What it
+    # meant now belongs to each machine.
+    data.pop("environment", None)
+    for m in data.get("machines") or []:
+        m.setdefault("kind", "docker")
 
     ex = [e for e in data.get("exclusions") or []
           if not (e.get("type") == "project" and e.get("value") in OBSOLETE)]

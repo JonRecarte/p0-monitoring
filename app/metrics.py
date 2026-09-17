@@ -21,9 +21,14 @@ def _line(name, labels, value=1):
     return f"{name}{{{inner}}} {value}"
 
 
-def render(config):
-    """config: the rules/exclusions/probes this machine has been told to apply."""
-    everything = docker_api.containers(all_states=True)
+def render(config, everything=None):
+    """config: the rules/exclusions/probes this machine has been told to apply.
+
+    `everything` lets the hub render these same two series for a cluster it scrapes,
+    from the pod list instead of the local socket. The series are identical either way,
+    which is what keeps one dashboard working across both.
+    """
+    everything = docker_api.containers(all_states=True) if everything is None else everything
     running = [c for c in everything if c["state"] == "running"]
     matching = rules_mod.evaluate(config.get("rules"), config.get("exclusions"), running)
     monitored = {c["id"] for c in matching}
@@ -44,10 +49,16 @@ def render(config):
         "# TYPE target_info gauge",
     ]
     for c in matching:
-        labels = {"container_id": c["id"], "pod": c["target"], "namespace": c["project"]}
-        for key in ("app", "role"):
-            if c.get(key):
-                labels[key] = c[key]
-        out.append(_line("target_info", labels))
+        # The energy panel joins `on(container_id)`, and Kepler keys its series by the
+        # id of the CONTAINER, not of the pod — verified against a live cluster, where
+        # it publishes a 64-character containerd id. A pod is one row of inventory but
+        # can hold several containers, so it needs one of these per container or the
+        # join silently matches nothing and the energy panels come up empty.
+        for cid in (c.get("container_ids") or [c["id"]]):
+            labels = {"container_id": cid, "pod": c["target"], "namespace": c["project"]}
+            for key in ("app", "role"):
+                if c.get(key):
+                    labels[key] = c[key]
+            out.append(_line("target_info", labels))
 
     return "\n".join(out) + "\n"
