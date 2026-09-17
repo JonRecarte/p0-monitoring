@@ -11,3 +11,6 @@ DISENO_APP.md
 # Throwaway containers used to test the app against something. Not part of the
 # product: whoever installs this already has containers of their own.
 example-workload/
+
+# per-machine port overrides
+.env

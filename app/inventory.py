@@ -12,7 +12,8 @@ import state as state_mod
 
 
 def _remote(machine, timeout=6):
-    url = f"http://{machine['address']}:8000/api/containers"
+    port = state_mod.ports(machine)["app"]
+    url = f"http://{machine['address']}:{port}/api/containers"
     with urllib.request.urlopen(url, timeout=timeout) as r:
         return json.load(r)
 

@@ -7,6 +7,15 @@
 # they measure, because they read the local kernel. Prometheus and Grafana only exist on
 # the hub. The hub measures itself through the same five, so it is simply the machine
 # that also holds the control plane.
+#
+# PORTS. Every published port can be moved, for machines that already have something on
+# one of these. Put it in a .env file next to this one, or in the environment:
+#
+#   GRAFANA_PORT=3300 docker compose --profile hub up -d --build
+#
+# Only the HOST side moves; inside the network the ports never change, so a hub keeps
+# scraping its own collectors by service name regardless. If you move a port on a NODE,
+# tell the hub on its Machines screen, or it will keep scraping the old one.
 name: p0-monitoring
 
 services:
@@ -24,7 +33,15 @@ services:
       - /opt/p0-monitoring:/data                    # state and generated configuration
     environment:
       HUB: ${HUB:-}          # unset = this machine is the hub
-    ports: ["8000:8000"]
+      # what this machine publishes, so the app can link to it and tell a hub about it
+      APP_PORT: ${APP_PORT:-8000}
+      CADVISOR_PORT: ${CADVISOR_PORT:-8080}
+      NODE_EXPORTER_PORT: ${NODE_EXPORTER_PORT:-9100}
+      KEPLER_PORT: ${KEPLER_PORT:-9102}
+      CLOUDPROBER_PORT: ${CLOUDPROBER_PORT:-9313}
+      PROMETHEUS_PORT: ${PROMETHEUS_PORT:-9090}
+      GRAFANA_PORT: ${GRAFANA_PORT:-3000}
+    ports: ["${APP_PORT:-8000}:8000"]
 
   # CPU, memory, limits and container labels. Must be local: reads the cgroupfs.
   cadvisor:
@@ -47,7 +64,7 @@ services:
       - --whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service,com.docker.compose.container-number
       - --disable_metrics=percpu,sched,process,hugetlb,referenced_memory,cpu_topology,resctrl
       - --housekeeping_interval=10s
-    ports: ["8080:8080"]
+    ports: ["${CADVISOR_PORT:-8080}:8080"]
 
   # The machine itself: CPU, RAM, disk, network, pressure.
   node-exporter:
@@ -64,7 +81,7 @@ services:
       - --path.sysfs=/host/sys
       - --path.rootfs=/rootfs
       - --collector.pressure
-    ports: ["9100:9100"]
+    ports: ["${NODE_EXPORTER_PORT:-9100}:9100"]
 
   # Energy. Real measurement where RAPL exists, a modelled estimate where it does not —
   # the app tells you which before anything is installed.
@@ -88,7 +105,7 @@ services:
       EXPOSE_CGROUP_METRICS: "false"
       EXPOSE_HW_COUNTER_METRICS: "true"
     command: ["/usr/bin/kepler", "-v=1"]
-    ports: ["9102:9102"]
+    ports: ["${KEPLER_PORT:-9102}:9102"]
 
   # Quality of service, probed from outside the target. Local because containers expose
   # ports on their own Docker network without publishing them to the host.
@@ -101,7 +118,7 @@ services:
     volumes:
       - /opt/p0-monitoring/generated:/etc/cloudprober:ro
     command: ["--config_file=/etc/cloudprober/cloudprober.cfg"]
-    ports: ["9313:9313"]
+    ports: ["${CLOUDPROBER_PORT:-9313}:9313"]
 
   # ------------------------------------------------------------------ hub only
   prometheus:
@@ -121,7 +138,7 @@ services:
       - --storage.tsdb.retention.time=7d
       - --storage.tsdb.retention.size=8GB
       - --web.enable-lifecycle
-    ports: ["9090:9090"]
+    ports: ["${PROMETHEUS_PORT:-9090}:9090"]
 
   grafana:
     image: grafana/grafana:11.5.2
@@ -137,7 +154,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
-    ports: ["3000:3000"]
+    ports: ["${GRAFANA_PORT:-3000}:3000"]
 
 volumes:
   prometheus-data:

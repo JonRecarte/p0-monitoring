@@ -2,8 +2,8 @@
 <h1>Applied</h1>
 
 <div class="panel"><table>
-<tr><td>Grafana</td><td><a href="http://{{ request.host.split(':')[0] }}:3000" target="_blank">:3000</a> · admin / admin</td></tr>
-<tr><td>Prometheus</td><td><a href="http://{{ request.host.split(':')[0] }}:9090" target="_blank">:9090</a></td></tr>
+<tr><td>Grafana</td><td><a href="http://{{ request.host.split(':')[0] }}:{{ my_ports.grafana }}" target="_blank">:{{ my_ports.grafana }}</a> · admin / admin</td></tr>
+<tr><td>Prometheus</td><td><a href="http://{{ request.host.split(':')[0] }}:{{ my_ports.prometheus }}" target="_blank">:{{ my_ports.prometheus }}</a></td></tr>
 <tr><td>Monitoring</td><td class="lead">{{ matching|length }} container(s) across {{ s.machines|length }} machine(s)</td></tr>
 </table></div>
 

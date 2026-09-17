@@ -15,6 +15,17 @@ OWN_PROJECT = "p0-monitoring"
 # Names this project used before. Carried in old state files, meaningless now.
 OBSOLETE = {"p0-monitoring-stack", "p0-monitoring-app", "fmstack", "fmapp"}
 
+# What a machine publishes, unless it says otherwise. The hub scrapes a node at these,
+# so a node that moves one has to say so; a hub reaches its own by service name and is
+# unaffected. Keys match the fields of the Machines form.
+DEFAULT_PORTS = {"app": 8000, "cadvisor": 8080, "node": 9100,
+                 "kepler": 9102, "cloudprober": 9313}
+
+
+def ports(machine):
+    """A machine's ports, defaults filled in."""
+    return {**DEFAULT_PORTS, **(machine.get("ports") or {})}
+
 EMPTY = {
     "environment": None,
     # Every machine that is measured. The hub is one of them: a single machine is the

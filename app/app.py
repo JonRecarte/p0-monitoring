@@ -36,10 +36,21 @@ def _s():
     return state.load()
 
 
+# What this machine publishes on the host. Compose passes these in, so the links the app
+# hands out stay right when somebody moves a port to dodge a collision.
+MY_PORTS = {name: os.environ.get(var, str(default))
+            for name, var, default in [
+                ("app", "APP_PORT", 8000), ("cadvisor", "CADVISOR_PORT", 8080),
+                ("node", "NODE_EXPORTER_PORT", 9100), ("kepler", "KEPLER_PORT", 9102),
+                ("cloudprober", "CLOUDPROBER_PORT", 9313),
+                ("prometheus", "PROMETHEUS_PORT", 9090), ("grafana", "GRAFANA_PORT", 3000)]}
+
+
 @app.context_processor
 def _globals():
     return {"installed": role.IS_HUB and generator.is_installed(state.load()),
-            "is_hub": role.IS_HUB, "role_text": role.describe()}
+            "is_hub": role.IS_HUB, "role_text": role.describe(),
+            "my_ports": MY_PORTS}
 
 
 def hub_only(view):
@@ -186,14 +197,24 @@ def machines():
             elif state.find(s, name):
                 message = f"There is already a machine called {name}."
             else:
-                s["machines"].append({"name": name, "address": address, "role": "node"})
+                # Only what actually differs is stored, so the common case leaves no
+                # trace and a default that changes one day is not frozen into old state.
+                custom = {}
+                for key, default in state.DEFAULT_PORTS.items():
+                    raw = (request.form.get(f"port_{key}") or "").strip()
+                    if raw.isdigit() and int(raw) != default:
+                        custom[key] = int(raw)
+                entry = {"name": name, "address": address, "role": "node"}
+                if custom:
+                    entry["ports"] = custom
+                s["machines"].append(entry)
                 state.save(s)
                 generator.generate_hub(s)
                 generator.reload_prometheus()
                 added = name
     return render_template("machines.html", s=s, health=_machine_health(s),
                            message=message, added=added,
-                           hub_address=request.host.split(":")[0], step=0)
+                           hub_address=request.host, defaults=state.DEFAULT_PORTS, step=0)
 
 
 def _machine_health(s):

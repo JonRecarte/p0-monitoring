@@ -10,7 +10,7 @@
 <table><tr><th>Run this on {{ added }}</th></tr></table>
 <pre>git clone https://github.com/JonRecarte/p0-monitoring.git
 cd p0-monitoring
-HUB=http://{{ hub_address }}:8000 docker compose up -d --build</pre>
+HUB=http://{{ hub_address }} docker compose up -d --build</pre>
 <p style="margin:0">It will fetch its configuration from here and start reporting.</p>
 </div>
 {% endif %}
@@ -19,7 +19,8 @@ HUB=http://{{ hub_address }}:8000 docker compose up -d --build</pre>
 <tr><th>Machine</th><th>Address</th><th>Role</th><th>State</th><th></th></tr>
 {% for m in s.machines %}
 <tr><td class="mono lead">{{ m.name }}</td>
-  <td class="mono">{{ m.address }}</td>
+  <td class="mono">{{ m.address }}{% if m.ports %}
+      <br><span class="hint">{{ m.ports.items() | map('join', ':') | join(' · ') }}</span>{% endif %}</td>
   <td class="mono">{{ m.role }}</td>
   <td>{% set h = health.get(m.name) %}
       {% if h == 'reporting' %}<span class="yes">reporting</span>
@@ -36,6 +37,15 @@ HUB=http://{{ hub_address }}:8000 docker compose up -d --build</pre>
 <form method="post"><div class="panel">
 <label><span>Name</span><input type="text" name="name" placeholder="test" required></label>
 <label><span>Address</span><input type="text" name="address" placeholder="192.168.0.69" required></label>
+<details style="margin:14px 0 4px">
+<summary style="cursor:pointer">Ports, if that machine does not use the defaults</summary>
+<p class="hint" style="margin:10px 0">Leave these alone unless you started it with
+<span class="mono">CADVISOR_PORT=…</span> or similar to dodge a collision. The hub scrapes
+what you put here.</p>
+{% for key, default in defaults.items() %}
+<label><span>{{ key }}</span><input type="number" name="port_{{ key }}" value="{{ default }}"></label>
+{% endfor %}
+</details>
 <div class="actions"><button type="submit">Add</button></div>
 </div></form>
 {% endblock %}

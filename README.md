@@ -103,6 +103,39 @@ and follow six screens:
 Grafana lands on **`:3000`** (`admin` / `admin` — change it), Prometheus on **`:9090`**.
 Data shows up after about 30 seconds.
 
+### If one of those ports is taken
+
+Machines that already run something — another Grafana, another cAdvisor — will collide.
+Every published port can be moved, from the environment or a `.env` file next to the
+compose:
+
+```bash
+GRAFANA_PORT=3300 PROMETHEUS_PORT=9190 docker compose --profile hub up -d --build
+```
+
+| Variable | Default | |
+|---|---|---|
+| `APP_PORT` | `8000` | the app: the wizard, the API, this machine's inventory |
+| `CADVISOR_PORT` | `8080` | CPU and memory |
+| `NODE_EXPORTER_PORT` | `9100` | the host |
+| `KEPLER_PORT` | `9102` | energy |
+| `CLOUDPROBER_PORT` | `9313` | QoS |
+| `PROMETHEUS_PORT` | `9090` | hub only |
+| `GRAFANA_PORT` | `3000` | hub only |
+
+Only the host side moves. Inside the network the ports never change, so a hub keeps
+reaching its own collectors whatever you set.
+
+**If you move a port on a node**, say so when you add it — *Machines → Ports, if that
+machine does not use the defaults*. Otherwise the hub keeps scraping the old one and that
+machine shows up silent.
+
+Check what is already listening before you install:
+
+```bash
+ss -ltn | grep -E ':(3000|8000|8080|9090|9100|9102|9313)'
+```
+
 ## What gets deployed
 
 | Container | Purpose | Runs on | Privileges |
@@ -198,8 +231,8 @@ have to touch your own containers to make QoS work.
 
 ## Adding a machine
 
-From **Status → Machines**, give the node a name and an address. The app tells you exactly
-what to run there, hands the node its configuration when it asks, and starts scraping it.
+From **Status → Machines**, give the node a name and an address — and its ports, if that
+machine had to move any. The app tells you exactly what to run there, hands the node its configuration when it asks, and starts scraping it.
 Removing one is the same screen — the app stops scraping, and tells you to stop the compose
 on that machine, which it cannot do for you.
 
@@ -233,6 +266,7 @@ rules:
 machines:
   - { name: hub,  address: local,        role: hub  }
   - { name: test, address: 192.168.0.69, role: node }
+  - { name: lab,  address: 192.168.0.70, role: node, ports: { grafana: 3300 } }
 exclusions:
   - { type: project, value: p0-monitoring }
 probes:

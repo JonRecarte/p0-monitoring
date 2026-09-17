@@ -8,17 +8,19 @@ global:
 scrape_configs:
 {% for m in machines %}
 {% set local = m.address in ('local', '', None) %}
-{% set host = 'HOSTNAME' if local else m.address %}
+{# A hub reaches its own collectors by service name on the shared network, where the
+   ports never move. Only a remote machine is addressed by its published ports. #}
+{% set p = m.ports or {} %}
 
   # ---------------------------------------------------------- {{ m.name }}{{ ' (hub)' if m.role == 'hub' }}
   - job_name: inventory-{{ m.name }}
     static_configs:
-      - targets: ["{{ 'app:8000' if local else m.address ~ ':8000' }}"]
+      - targets: ["{{ 'app:8000' if local else m.address ~ ':' ~ p.get('app', 8000) }}"]
         labels: { cluster: {{ m.name }} }
 
   - job_name: cadvisor-{{ m.name }}
     static_configs:
-      - targets: ["{{ 'cadvisor:8080' if local else m.address ~ ':8080' }}"]
+      - targets: ["{{ 'cadvisor:8080' if local else m.address ~ ':' ~ p.get('cadvisor', 8080) }}"]
         labels: { cluster: {{ m.name }} }
     metric_relabel_configs:
       - source_labels: [id]
@@ -55,18 +57,18 @@ scrape_configs:
 
   - job_name: node-{{ m.name }}
     static_configs:
-      - targets: ["{{ 'node-exporter:9100' if local else m.address ~ ':9100' }}"]
+      - targets: ["{{ 'node-exporter:9100' if local else m.address ~ ':' ~ p.get('node', 9100) }}"]
         labels: { cluster: {{ m.name }} }
 
   - job_name: kepler-{{ m.name }}
     static_configs:
-      - targets: ["{{ 'kepler:9102' if local else m.address ~ ':9102' }}"]
+      - targets: ["{{ 'kepler:9102' if local else m.address ~ ':' ~ p.get('kepler', 9102) }}"]
         labels: { cluster: {{ m.name }} }
 
   - job_name: cloudprober-{{ m.name }}
     scrape_interval: 5s
     static_configs:
-      - targets: ["{{ 'cloudprober:9313' if local else m.address ~ ':9313' }}"]
+      - targets: ["{{ 'cloudprober:9313' if local else m.address ~ ':' ~ p.get('cloudprober', 9313) }}"]
         labels: { cluster: {{ m.name }} }
 {% endfor %}
 

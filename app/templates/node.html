@@ -26,7 +26,8 @@
 
 <div class="panel"><table>
 <tr><th>This machine publishes</th></tr>
-<tr><td class="mono">:8000/metrics — its inventory</td></tr>
-<tr><td class="mono">:8080 cAdvisor · :9100 node-exporter · :9102 Kepler · :9313 cloudprober</td></tr>
+<tr><td class="mono">:{{ my_ports.app }}/metrics — its inventory</td></tr>
+<tr><td class="mono">:{{ my_ports.cadvisor }} cAdvisor · :{{ my_ports.node }} node-exporter
+    · :{{ my_ports.kepler }} Kepler · :{{ my_ports.cloudprober }} cloudprober</td></tr>
 </table></div>
 {% endblock %}
