@@ -251,22 +251,26 @@ to stop the compose on that machine, which it cannot do for you.
 
 ### A Kubernetes cluster
 
-A cluster needs no node half, because Kubernetes already is one: the kubelet ships
-cAdvisor, and the API server can reach every pod. So you give an API server address and a
-read-only token, and **nothing is installed into your cluster**.
+You give an API server address and a token, and the app installs the collectors there —
+the same thing `docker compose up` does on a Docker machine, as DaemonSets instead of
+containers. cAdvisor is the one piece never installed, because the kubelet already runs it.
 
-Apply this there, and paste what the last line prints:
+Run this in the cluster and paste what the last line prints:
 
 ```bash
 kubectl create ns p0-monitoring
 kubectl -n p0-monitoring create sa scraper
-kubectl create clusterrole p0-scraper \
-  --verb=get,list,watch \
-  --resource=nodes,nodes/proxy,nodes/metrics,pods,pods/proxy,services,services/proxy
 kubectl create clusterrolebinding p0-scraper \
-  --clusterrole=p0-scraper --serviceaccount=p0-monitoring:scraper
+  --clusterrole=cluster-admin --serviceaccount=p0-monitoring:scraper
 kubectl -n p0-monitoring create token scraper --duration=8760h
 ```
+
+**That token can write, and it has to**: installing a DaemonSet means creating one. It only
+touches the `p0-monitoring` namespace and its own two cluster roles, and once the
+collectors are in you can narrow it to read-only — the screen gives those commands too.
+
+Removing the machine removes the collectors again. Leaving a privileged DaemonSet behind
+in somebody's cluster because they clicked Remove here would be rude.
 
 Everything is scraped **through the API server's proxy**, so a cluster is one address and
 one token: no NodePort to open, no Ingress to configure, no route to the pod network.
@@ -291,12 +295,12 @@ you add it, rather than leaving you to find an empty panel three days later.
 
 | | Docker host | Kubernetes cluster |
 |---|---|---|
-| **CPU, memory** | our cAdvisor | the kubelet's cAdvisor — nothing installed |
+| **CPU, memory** | our cAdvisor | the kubelet's cAdvisor — the one thing never installed |
 | **Inventory** | the app, on that machine | the hub, from the cluster's API |
-| **Host metrics** | our node-exporter | only if node-exporter is already there |
-| **Energy** | our Kepler | only if Kepler is already there |
-| **QoS** | our cloudprober | **not yet** — see Limitations |
-| **What you install there** | five containers | nothing. A ServiceAccount |
+| **Host metrics** | node-exporter, as a container | node-exporter, as a DaemonSet |
+| **Energy** | Kepler, as a container | Kepler, as a DaemonSet |
+| **QoS** | cloudprober, as a container | cloudprober, as a Deployment — it probes from *inside*, so no NodePort and no Ingress |
+| **What arrives there** | five containers | four workloads in one namespace |
 
 ### One host can be both
 
@@ -356,12 +360,8 @@ demand. Back up one file; move to another machine by copying one file.
 
 Worth knowing before you invest time:
 
-- **A cluster gives CPU, memory and inventory.** Energy and host metrics only if Kepler
-  and node-exporter are already installed there: this app does not deploy into a cluster
-  it did not create.
-- **No QoS on a cluster yet.** Reaching a Service from outside needs a NodePort or an
-  Ingress, and there is no answer to that which is true of every cluster. Probes are
-  generated for Docker machines only.
+- **A cluster token has to be able to write**, because installing the collectors means
+  creating them. It can be narrowed to read-only afterwards.
 - **A cluster token is stored readable** at `/opt/p0-monitoring/generated/tokens/<name>`,
   mode `0644`, because Prometheus runs as `nobody` and has to read it at scrape time. It
   is a read-only metrics token, and it never goes into `config.yaml`.

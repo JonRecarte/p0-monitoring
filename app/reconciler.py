@@ -19,6 +19,8 @@ from datetime import datetime
 
 import docker_api
 import generator
+import inventory
+import k8s_install
 import role
 import rules as rules_mod
 import state as state_mod
@@ -42,6 +44,7 @@ class Reconciler:
         self._targets = None
         self._probe = None
         self._machines = None
+        self._cluster_probes = {}
         self._thread = None
 
     # ------------------------------------------------------------------ lifecycle
@@ -133,6 +136,7 @@ class Reconciler:
     def _hub_side(self):
         """The scrape configuration only changes when the list of machines does."""
         s = state_mod.load()
+        self._clusters_side(s)
         machines = json.dumps(s.get("machines") or [], sort_keys=True)
         if machines == self._machines:
             return
@@ -150,6 +154,49 @@ class Reconciler:
                 self._note("machine list changed: scrape configuration rewritten")
             if "prometheus" in result["changed"]:
                 self._note("  " + generator.reload_prometheus())
+
+    def _clusters_side(self, s):
+        """Keep each cluster's probes in step with the pods that match.
+
+        The same job the loop does for this machine's cloudprober, once per cluster. A
+        pod's address is its IP and a new pod gets a new one, so this is not a rare
+        event: without it the prober keeps aiming at addresses nobody answers on, and
+        QoS reads as an outage that is really a stale configuration.
+
+        Only the probes are re-applied, not the collectors: the DaemonSets do not depend
+        on which pods were picked, and re-applying them every fifteen seconds would be
+        noise in somebody else's cluster.
+        """
+        cfg = {k: s.get(k) for k in ("rules", "exclusions", "probes")}
+        if not cfg.get("rules") or not cfg.get("probes"):
+            return
+        for m in s.get("machines") or []:
+            if state_mod.kind(m) != "kubernetes":
+                continue
+            name = m["name"]
+            try:
+                pods = inventory.for_machine(m)
+                matching = rules_mod.evaluate(cfg.get("rules"), cfg.get("exclusions"), pods)
+                probes = generator.probes_for(cfg, matching)
+            except Exception as exc:
+                if self._cluster_probes.get(name) != "unreachable":
+                    self._note(f"{name}: cannot list pods: {exc}")
+                    self._cluster_probes[name] = "unreachable"
+                continue
+            fingerprint = json.dumps(probes, sort_keys=True)
+            if fingerprint == self._cluster_probes.get(name):
+                continue
+            first = name not in self._cluster_probes
+            self._cluster_probes[name] = fingerprint
+            token = state_mod.read_token(name)
+            ok, notes = k8s_install.install(m["address"], token, name, probes=probes,
+                                            only=k8s_install.PROBE_OBJECTS)
+            self._note(f"{name}: {len(probes)} probe(s) "
+                       + ("installed" if first else "changed, reapplied")
+                       + ("" if ok else " — WITH FAILURES"))
+            for note in notes:
+                if note.startswith("FAILED"):
+                    self._note("  " + note)
 
     def _reconcile(self, cfg, reason):
         self._note(reason)

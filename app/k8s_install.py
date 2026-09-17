@@ -9,6 +9,8 @@ cAdvisor is the one piece that is never installed: the kubelet already runs it.
 
 Everything lands in one namespace, so removing it is one delete.
 """
+import hashlib
+import json
 import os
 
 import yaml
@@ -23,6 +25,7 @@ IMAGES = {
     "kepler": os.environ.get("KEPLER_IMAGE",
                              "quay.io/sustainable_computing_io/kepler:release-0.8.0"),
     "node_exporter": os.environ.get("NODE_EXPORTER_IMAGE", "prom/node-exporter:v1.8.2"),
+    "cloudprober": os.environ.get("CLOUDPROBER_IMAGE", "cloudprober/cloudprober:latest"),
 }
 
 _env = Environment(
@@ -30,27 +33,43 @@ _env = Environment(
     keep_trailing_newline=True, trim_blocks=True, lstrip_blocks=True)
 
 
-def render(cluster):
-    """The objects to put in this cluster, as a list of dicts."""
-    text = _env.get_template("k8s-collectors.yaml.j2").render(
-        cluster=cluster, ns=NS, images=IMAGES)
-    return [o for o in yaml.safe_load_all(text) if o]
+def _checksum(probes):
+    """Identifies a set of probes. Rides on the pod template so that changing them
+    rolls the prober, which otherwise would keep running the configuration it read
+    when it started."""
+    return hashlib.sha256(
+        json.dumps(probes, sort_keys=True).encode()).hexdigest()[:16]
 
 
-def manifest(cluster):
-    """The same thing as YAML, for somebody who would rather read or apply it by hand."""
+def manifest(cluster, probes=None):
+    """The objects to put in this cluster, as YAML."""
+    probes = probes or []
     return _env.get_template("k8s-collectors.yaml.j2").render(
-        cluster=cluster, ns=NS, images=IMAGES)
+        cluster=cluster, ns=NS, images=IMAGES, probes=probes,
+        probes_checksum=_checksum(probes))
 
 
-def install(address, token, cluster, dry_run=False):
-    """Apply everything. Returns (ok, notes) and never raises at the caller.
+def render(cluster, probes=None):
+    """The same, parsed."""
+    return [o for o in yaml.safe_load_all(manifest(cluster, probes)) if o]
+
+
+# What carries the probes. The reconciler re-applies only these, every time the pods it
+# probes change; the collectors do not depend on which pods were picked, and re-applying
+# them on a loop would be noise in somebody else's cluster.
+PROBE_OBJECTS = ("ConfigMap", "Deployment")
+
+
+def install(address, token, cluster, probes=None, only=None, dry_run=False):
+    """Apply everything, or only the kinds named. Returns (ok, notes), never raises.
 
     Partial failure is reported rather than swallowed: a cluster with node-exporter but
     no Kepler is a real state, and the screen has to be able to say which.
     """
     notes, ok = [], True
-    for obj in render(cluster):
+    for obj in render(cluster, probes):
+        if only and obj["kind"] not in only:
+            continue
         what = f"{obj['kind']}/{obj['metadata']['name']}"
         try:
             k8s_api.apply(address, token, obj, dry_run=dry_run)

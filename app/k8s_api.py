@@ -99,6 +99,11 @@ def normalise(payload, all_states=False):
                              for cp in (c.get("ports") or []) if cp.get("containerPort")}),
             "state": state,
             "ip": status.get("podIP") or "",
+            # What a prober aims at. Docker gives a container a name its network
+            # resolves; a pod has no such name, so from inside the cluster its IP is
+            # the address. It changes when the pod is recreated, which is why the
+            # reconciler regenerates the probes when the set of pods changes.
+            "probe_host": status.get("podIP") or "",
             "networks": [],
             # what the energy and cpu series are keyed by, kept for completeness
             "container_ids": [i for i in ids if i],

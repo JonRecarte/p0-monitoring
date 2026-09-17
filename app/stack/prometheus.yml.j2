@@ -68,8 +68,12 @@ scrape_configs:
    someone else's cluster. If they are absent these jobs simply find no targets,
    which is the honest outcome and needs no configuration. #}
 {% for job, match, port in [('node', 'node-exporter', p.get('node', 9100)),
-                            ('kepler', 'kepler', p.get('kepler', 9102))] %}
+                            ('kepler', 'kepler', p.get('kepler', 9102)),
+                            ('cloudprober', 'cloudprober', p.get('cloudprober', 9313))] %}
   - job_name: {{ job }}-{{ m.name }}
+{% if job == 'cloudprober' %}
+    scrape_interval: 5s
+{% endif %}
     scheme: https
 {{ auth }}
     kubernetes_sd_configs:
@@ -93,9 +97,10 @@ scrape_configs:
       - target_label: cluster
         replacement: {{ m.name }}
 {% endfor %}
-{# QoS is not generated for a cluster yet: reaching a Service from outside needs a
-   NodePort or an Ingress, and there is no answer to that which is true of every
-   cluster. Saying so is better than generating probes that quietly never succeed. #}
+{# The prober is one of the three the app installs into the cluster. It probes from
+   inside, which is what makes QoS possible here at all: from outside, reaching a
+   workload would need a NodePort or an Ingress, and there is no answer to that which
+   is true of every cluster. #}
 {% else %}
   - job_name: inventory-{{ m.name }}
     static_configs:

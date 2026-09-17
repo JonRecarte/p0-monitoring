@@ -127,3 +127,67 @@ spec:
         - { name: proc, hostPath: { path: /proc } }
         - { name: sys,  hostPath: { path: /sys } }
         - { name: root, hostPath: { path: / } }
+---
+# Quality of service. This is the piece that makes QoS possible in a cluster at all:
+# from outside, reaching a workload needs a NodePort or an Ingress and there is no answer
+# true of every cluster. From inside there is nothing to arrange — and Prometheus reaches
+# the prober itself through the API server's pod proxy, like the other two.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudprober-config
+  namespace: {{ ns }}
+  labels: { app.kubernetes.io/part-of: p0-monitoring }
+data:
+  cloudprober.cfg: |
+{% for p in probes %}
+    probe {
+      name: "{{ p.name }}"
+      type: HTTP
+      targets { host_names: "{{ p.host }}" }
+      http_probe {
+        protocol: HTTP
+        port: {{ p.port }}
+        relative_url: "{{ p.path }}"
+      }
+      interval_msec: 1000
+      timeout_msec: 800
+    }
+{% else %}
+    # nothing selected in this cluster yet
+{% endfor %}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudprober
+  namespace: {{ ns }}
+  labels: { app.kubernetes.io/name: cloudprober, app.kubernetes.io/part-of: p0-monitoring }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: cloudprober }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: cloudprober, app.kubernetes.io/part-of: p0-monitoring }
+      annotations:
+        # cloudprober reads its configuration once, at start-up. A ConfigMap change alone
+        # would leave it running the old one, so the checksum rides on the pod template:
+        # when the probes change the template changes, and Kubernetes rolls it itself.
+        # No restart call, and nothing to remember to do.
+        p0-monitoring/config-checksum: "{{ probes_checksum }}"
+    spec:
+      containers:
+        - name: cloudprober
+          image: {{ images.cloudprober }}
+          args: ["--config_file=/etc/cloudprober/cloudprober.cfg", "--logtostderr"]
+          ports:
+            - { containerPort: 9313, name: http }
+          volumeMounts:
+            - { name: config, mountPath: /etc/cloudprober }
+          resources:
+            requests: { cpu: 10m, memory: 30Mi }
+            limits:   { memory: 150Mi }
+      volumes:
+        - name: config
+          configMap: { name: cloudprober-config }

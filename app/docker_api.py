@@ -83,6 +83,9 @@ def containers(all_states=False):
             # Docker names are already stable, so a container is its own workload. The
             # field exists on both so the rules engine never has to ask which it holds.
             "workload": service or name,
+            # On a Docker network the container name resolves, so it is the better
+            # target: it survives the container getting a new address.
+            "probe_host": name,
             "from_compose": from_compose,
             "labels": {k: v for k, v in labels.items() if not k.startswith("com.docker.compose")},
             "ports": sorted({p["PrivatePort"] for p in (c.get("Ports") or []) if p.get("PrivatePort")}),

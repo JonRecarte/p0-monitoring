@@ -67,10 +67,11 @@ def probes_for(config, matching):
     out, seen = [], set()
     for c in matching:
         name = _probe_name(c["name"])
-        if name in seen:
+        host = c.get("probe_host") or c["name"]
+        if name in seen or not host:
             continue
         seen.add(name)
-        out.append({"name": name, "host": c["name"],
+        out.append({"name": name, "host": host,
                     "port": cfg.get("port", 80), "path": cfg.get("path", "/")})
     return out
 
