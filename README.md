@@ -42,25 +42,36 @@ series with Top 5 rankings, a full QoS section, and a summary of the machine.
 ## Requirements
 
 - **Linux** with **cgroups v2**
-- **Docker** with the **`overlay2`** storage driver
+- **Docker**, to run the stack itself
 - Internet access on first build (it downloads the Docker CLI and Compose plugin)
 - ~500 MB of RAM for the stack, plus disk for metrics (7-day retention, capped at 8 GB)
+- To measure a **Docker host**: the **`overlay2`** storage driver on that machine — see below
+- To measure a **Kubernetes cluster**: an API server you can reach and a token
 
 > [!IMPORTANT]
 > **Docker 29 and later default to the containerd snapshotter, which cAdvisor cannot read.**
-> If your storage driver is `overlayfs` instead of `overlay2`, container CPU and memory will
-> not be collected. The app detects this and tells you, but it will not change your Docker
-> configuration for you. To fix it:
+> If a machine's storage driver is `overlayfs` instead of `overlay2`, the CPU and memory of
+> **that machine's containers** will not be collected. The app detects it and says so.
+>
+> ```bash
+> docker info | grep "Storage Driver"
+> ```
+>
+> To change it on a plain Docker, put this in `/etc/docker/daemon.json` and
+> `sudo systemctl restart docker`:
 >
 > ```jsonc
-> // /etc/docker/daemon.json
 > { "features": { "containerd-snapshotter": false } }
 > ```
 >
-> Then `sudo systemctl restart docker`. Note that images built with the snapshotter stop
-> being visible and need rebuilding.
+> On **Docker Desktop** that file is ignored: turn off *Use containerd for pulling and
+> storing images* in Settings → General, then Apply & restart.
 >
-> Check yours with `docker info | grep "Storage Driver"`.
+> Either way, images built with the snapshotter stop being visible and need rebuilding.
+>
+> **This does not affect Kubernetes clusters.** They are measured through their own
+> kubelet, which reads containerd directly. A machine whose driver you cannot change can
+> still have its cluster measured in full.
 
 ## Quick start
 
@@ -154,10 +165,19 @@ ss -ltn | grep -E ':(3000|8000|8080|9090|9100|9102|9313)'
 Four of them **must** sit beside what they measure, because they read the local kernel.
 That is the whole reason a node exists. Prometheus and Grafana only live on the hub.
 
-**None of this is installed into a Kubernetes cluster.** A cluster already runs the
-equivalent, so it is scraped through its API server instead — see *Adding a machine*.
-
 Two need privileges, and screen 5 says so before you commit.
+
+**In a Kubernetes cluster the same four arrive as Kubernetes workloads**, in a namespace
+called `p0-monitoring`:
+
+| Workload | Purpose | Privileges |
+|---|---|---|
+| — | CPU and memory come from **the kubelet's own cAdvisor**; nothing is installed | — |
+| `kepler` (DaemonSet) | energy | privileged · `/sys` `/proc` `/lib/modules` `/usr/src` |
+| `node-exporter` (DaemonSet) | host metrics | `hostPID`, read-only host mounts |
+| `cloudprober` (Deployment) | QoS, probed from inside the cluster | none |
+
+Removing the machine removes them again.
 
 **The app is not in the data path.** Stop it, rebuild it, break it — the collectors keep
 measuring. It also excludes itself and its own stack from what it monitors.
@@ -251,11 +271,11 @@ to stop the compose on that machine, which it cannot do for you.
 
 ### A Kubernetes cluster
 
-You give an API server address and a token, and the app installs the collectors there —
+You give an API server address and a token, and **the app installs the collectors there** —
 the same thing `docker compose up` does on a Docker machine, as DaemonSets instead of
 containers. cAdvisor is the one piece never installed, because the kubelet already runs it.
 
-Run this in the cluster and paste what the last line prints:
+**1 · Make a token, in the cluster.** Paste what the last line prints:
 
 ```bash
 kubectl create ns p0-monitoring
@@ -265,33 +285,45 @@ kubectl create clusterrolebinding p0-scraper \
 kubectl -n p0-monitoring create token scraper --duration=8760h
 ```
 
-**That token can write, and it has to**: installing a DaemonSet means creating one. It only
+**2 · Find the API server's address:**
+
+```bash
+kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'
+```
+
+**3 · Add it** in *Machines*: Kind **Kubernetes cluster**, a name, that address, that token.
+
+That is the whole recipe. When you press Add, the app checks the token, installs Kepler,
+node-exporter and cloudprober, and starts scraping — and tells you what it did:
+
+> Kubernetes v1.37.0 · 1 node(s) · CPU and memory from the kubelet · installed Kepler and
+> node-exporter
+
+#### Two things worth knowing before you do it
+
+**That token can write, and it has to.** Installing a DaemonSet means creating one. It only
 touches the `p0-monitoring` namespace and its own two cluster roles, and once the
 collectors are in you can narrow it to read-only — the screen gives those commands too.
 
-Removing the machine removes the collectors again. Leaving a privileged DaemonSet behind
-in somebody's cluster because they clicked Remove here would be rude.
+**The address you can reach may not be one the hub can, and it works that out.** A cluster
+made with `kind`, `k3d` or minikube publishes its API server on loopback —
+`https://127.0.0.1:39441` and the like — and inside the hub's container that address means
+the container itself. So when an address never answers, the app looks for a container on
+this machine publishing that port, joins that container's network and talks to it directly,
+then says so:
+
+> reached as `hucai-control-plane:6443`. `127.0.0.1:39441` is a port published by the
+> container `hucai-control-plane` on this machine, which the hub cannot use from inside its
+> own container.
+
+It only does that when nothing answered at all. An API server that answers and rejects your
+token is a token problem, and no amount of rerouting fixes it.
+
+Removing the machine removes the collectors again. Leaving a privileged DaemonSet behind in
+somebody's cluster because they clicked Remove here would be rude.
 
 Everything is scraped **through the API server's proxy**, so a cluster is one address and
 one token: no NodePort to open, no Ingress to configure, no route to the pod network.
-
-**If the address you can reach is not one the hub can**, it works that out. A cluster made
-with `kind`, `k3d` or minikube publishes its API server on loopback — `127.0.0.1:39441` and
-the like — and inside the hub's container that address means the container itself. So when
-an address never answers, the app looks for a container on this machine publishing that
-port, joins that container's network and talks to it directly, then tells you it did:
-
-> Kubernetes v1.37.0 · 1 node(s) · reached as `hucai-control-plane:6443`. `127.0.0.1:39441`
-> is a port published by the container `hucai-control-plane` on this machine, which the hub
-> cannot use from inside its own container.
-
-It only does this when nothing answered at all. An API server that answers and rejects your
-token is a token problem, and no amount of rerouting fixes it.
-
-The token is checked before the cluster is saved, and the app reports what it found — how
-many nodes, and whether Kepler and node-exporter are actually installed there. Often they
-are not, and then **that cluster has no energy and no host metrics**. The app says so when
-you add it, rather than leaving you to find an empty panel three days later.
 
 | | Docker host | Kubernetes cluster |
 |---|---|---|
@@ -317,13 +349,17 @@ dashboard, told apart by the **Machine** filter.
 
 ### How the two halves talk
 
-Over the LAN, in both directions, and **with no credentials anywhere** — no SSH keys, no
-tokens, and no Docker daemon exposed to the network:
+Between the hub and a **Docker node**, over the LAN, in both directions, and with no
+credentials at all — no SSH keys, no tokens, no Docker daemon exposed to the network:
 
 - **hub → node**: Prometheus scrapes five HTTP endpoints — `:8000` `:8080` `:9100` `:9102`
   `:9313`. That is the only thing the hub does to a node.
 - **node → hub**: the node asks for its configuration and applies it. The hub cannot reach
   the node's Docker daemon, so it cannot push anything; the node comes and fetches instead.
+
+A **cluster** is the one place a credential exists, because there is no node half to run a
+command on: the hub reaches it with a token, through the API server, and that is also how it
+installs the collectors.
 
 So the hub decides *what* is monitored, and each node applies that decision to whatever it can
 see locally, managing its own probes. The machine's name is stamped by the hub when it
@@ -337,24 +373,29 @@ their last known state rather than vanishing.
 Everything the app knows lives in one readable file, `/opt/p0-monitoring/config.yaml`:
 
 ```yaml
-environment: docker
 capabilities:
   energy: { available: true, source: model, reason: "no domains under /sys/class/powercap" }
 rules:
   - { type: label, key: app, value: drone-sitl }
 machines:
-  - { name: hub,  address: local,             role: hub,  kind: docker }
-  - { name: test, address: 192.168.0.69,      role: node, kind: docker, ports: { cadvisor: 8081 } }
-  - { name: lab,  address: 192.168.0.70:6443, role: node, kind: kubernetes }
+  - { name: hub,  address: local,                  role: hub,  kind: docker }
+  - { name: test, address: 192.168.0.69,           role: node, kind: docker, ports: { cadvisor: 8081 } }
+  - { name: lab,  address: lab-control-plane:6443, role: node, kind: kubernetes, networks: [kind] }
 exclusions:
   - { type: project, value: p0-monitoring }
 probes:
   - { type: http, port: 8080, path: /health }
 ```
 
-**This is the only file that cannot be rebuilt.** The Compose file, `prometheus.yml`,
-`cloudprober.cfg` and the Grafana provisioning are all derived from it and regenerated on
-demand. Back up one file; move to another machine by copying one file.
+Each machine says what it is. There is no global setting for that: one installation can
+hold Docker hosts and clusters at once, and the same server can be both.
+
+**This is the only file that cannot be rebuilt.** `prometheus.yml`, `cloudprober.cfg`, the
+Grafana provisioning and the manifests applied to a cluster are all derived from it and
+regenerated on demand. Back up one file; move to another machine by copying one file.
+
+The one thing not in it is a cluster token, which lives beside it in
+`generated/tokens/<name>` — so this file can be read, shown and pasted into a ticket.
 
 ## Limitations
 
@@ -364,7 +405,11 @@ Worth knowing before you invest time:
   creating them. It can be narrowed to read-only afterwards.
 - **A cluster token is stored readable** at `/opt/p0-monitoring/generated/tokens/<name>`,
   mode `0644`, because Prometheus runs as `nobody` and has to read it at scrape time. It
-  is a read-only metrics token, and it never goes into `config.yaml`.
+  never goes into `config.yaml`, but on a hub you do not trust, do not leave it able to
+  write — narrow it once the collectors are in.
+- **A pod is probed by its IP**, because a pod has no name its network resolves. The
+  reconciler rewrites the probes when pods are recreated, so expect the QoS series to
+  follow a pod rather than a workload.
 - **A node's code does not update itself**, only its configuration. Changing the app means
   `git pull` and a rebuild on each machine.
 - **Nothing is authenticated**, neither the app nor the collector ports nor the endpoint a
