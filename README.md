@@ -59,30 +59,84 @@ series with Top 5 rankings, a full QoS section, and a summary of the machine.
 >
 > Check yours with `docker info | grep "Storage Driver"`.
 
+## The two ways to run it
+
+The same repository covers both. What changes is how many machines you install it on, not
+which version you install.
+
+**One machine.** The containers you want to measure run on the server you install on. This is
+the whole thing:
+
+```
+┌─ your server ─────────┐
+│  your containers      │
+│  collectors           │
+│  the app · the wizard │
+│  Prometheus · Grafana │
+└───────────────────────┘
+```
+
+**Several machines.** The containers live somewhere else, or on more than one box. The four
+collectors have to sit beside what they measure — they read the local kernel — so every
+machine runs them. Only one machine keeps the dashboards and the configuration, and that one
+is called the hub:
+
+```
+┌─ hub ─────────────────┐                      ┌─ node ────────────────┐
+│  your containers      │                      │  your containers      │
+│  collectors           │  ─── scrapes ──────→ │  collectors           │
+│  the app · the wizard │                      │  the app              │
+│  Prometheus · Grafana │ ←── asks for its ─── │                       │
+│                       │     configuration    └───────────────────────┘
+└───────────────────────┘                      ┌─ node ────────────────┐
+                                               │  …                    │
+                                               └───────────────────────┘
+```
+
+**One machine is not a separate mode.** The hub box is the same box as the first picture: a
+hub always measures itself as well, so one machine is simply this second picture with no nodes
+attached — same code, same screens, same dashboard. You can start with one machine and add a
+second later from the interface, without reinstalling anything or redoing the wizard.
+
+| | One machine | Several machines |
+|---|---|---|
+| **What you run** | the hub command, once | the hub command on one, the node command on each of the others |
+| **What it starts** | all seven containers | hub: seven · node: five |
+| **The wizard** | on that machine | on the hub only — nodes have no wizard |
+| **Where you point your browser** | `http://localhost:8000` | `http://<hub-ip>:8000` |
+| **Credentials needed** | none | none — see [how the two halves talk](#how-the-two-halves-talk) |
+
 ## Quick start
 
-Same repository, same command, on every machine. One word tells them apart.
+Same repository and same compose file on every machine:
 
 ```bash
 git clone https://github.com/JonRecarte/p0-monitoring.git
 cd p0-monitoring
 ```
 
-**On the machine that controls everything** — the hub:
+**If everything runs on one machine**, that machine is the hub, and this is the whole install:
 
 ```bash
 docker compose --profile hub up -d --build
 ```
 
-**On every other machine you want to measure** — a node:
+**If you have several**, run that same command on the one that will hold the dashboards, then
+on every other machine:
 
 ```bash
 HUB=http://<hub-ip>:8000 docker compose up -d --build
 ```
 
-A hub measures itself too, so with a single machine you only ever run the first command.
+Two things tell them apart, and nothing else does: `--profile hub` adds Prometheus and
+Grafana, and `HUB` points a machine at them.
 
-Then open **`http://<hub>:8000`** and follow six screens:
+> [!TIP]
+> Forgetting `--profile hub` is the easy mistake: the collectors come up, but nothing stores
+> or draws what they collect. The status page checks for it and says so.
+
+Then open **`http://<hub-ip>:8000`** — or `http://localhost:8000` on a single machine —
+and follow six screens:
 
 | | Screen | What you do |
 |---|---|---|
@@ -196,15 +250,19 @@ what to run there, hands the node its configuration when it asks, and starts scr
 Removing one is the same screen — the app stops scraping, and tells you to stop the compose
 on that machine, which it cannot do for you.
 
-**How the two halves talk**, both over the LAN and without credentials:
+### How the two halves talk
 
-- **hub → node**: Prometheus scrapes five endpoints — `:8000` `:8080` `:9100` `:9102` `:9313`.
-- **node → hub**: the node asks for its configuration. Since the hub has no access to the
-  node's Docker daemon, it cannot push anything: the node comes and fetches.
+Over the LAN, in both directions, and **with no credentials anywhere** — no SSH keys, no
+tokens, and no Docker daemon exposed to the network:
 
-The hub decides *what* is monitored; each node applies that to what it can see, and manages
-its own probes. That is also why a single machine is not a special case — the hub is simply
-the node that also holds the control plane.
+- **hub → node**: Prometheus scrapes five HTTP endpoints — `:8000` `:8080` `:9100` `:9102`
+  `:9313`. That is the only thing the hub does to a node.
+- **node → hub**: the node asks for its configuration and applies it. The hub cannot reach
+  the node's Docker daemon, so it cannot push anything; the node comes and fetches instead.
+
+So the hub decides *what* is monitored, and each node applies that decision to whatever it can
+see locally, managing its own probes. The machine's name is stamped by the hub when it
+scrapes, which is why a node never needs to be told what it is called.
 
 **If a node goes quiet**, Status says so, and its containers stay on the dashboard with
 their last known state rather than vanishing.
@@ -215,7 +273,6 @@ Everything the app knows lives in one readable file, `/opt/p0-monitoring/config.
 
 ```yaml
 environment: docker
-machine: sim-server-01
 capabilities:
   energy: { available: true, source: model, reason: "no domains under /sys/class/powercap" }
 rules:
