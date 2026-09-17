@@ -12,6 +12,7 @@ import docker_api
 import generator
 import inventory
 import k8s_api
+import k8s_install
 import reconciler
 import role
 import rules
@@ -191,13 +192,26 @@ def machines():
     if request.method == "POST":
         if request.form.get("remove"):
             name = request.form["remove"]
+            gone = state.find(s, name) or {}
+            tail = ("Stop the compose on that machine as well: the hub cannot do it "
+                    "for you.")
+            # What we installed, we take out. Leaving a privileged DaemonSet behind in
+            # somebody's cluster because they clicked Remove here would be rude.
+            if state.kind(gone) == "kubernetes":
+                token = state.read_token(name)
+                notes = k8s_install.uninstall(gone.get("address", ""), token, name)
+                for note in notes:
+                    app.logger.info("uninstall %s: %s", name, note)
+                tail = ("The collectors were removed from it too."
+                        if all(n.startswith("removed") for n in notes) else
+                        "Some of its collectors could not be removed: " +
+                        "; ".join(n for n in notes if not n.startswith("removed")))
             s["machines"] = [m for m in s["machines"] if m["name"] != name]
             state.drop_token(name)          # a cluster's credential goes with it
             state.save(s)
             generator.generate_hub(s)
             generator.reload_prometheus()
-            message = (f"{name} removed. Stop the compose on that machine as well: "
-                       "the hub cannot do it for you.")
+            message = f"{name} removed. {tail}"
         else:
             name = (request.form.get("name") or "").strip()
             address = (request.form.get("address") or "").strip()
@@ -219,14 +233,18 @@ def machines():
                     ok, address, nets, detail = _reach(address, token)
                     if ok:
                         f = k8s_api.survey(address, token)
-                        missing = [n for n, present in
-                                   [("Kepler — no energy for this cluster", f["kepler"]),
-                                    ("node-exporter — no host metrics", f["node_exporter"])]
-                                   if not present]
-                        detail = f"{detail} · {len(f['nodes'])} node(s) · CPU and memory " \
-                                 f"from the kubelet"
-                        if missing:
-                            detail += ". Not installed there: " + "; ".join(missing)
+                        detail = (f"{detail} · {len(f['nodes'])} node(s) · CPU and memory "
+                                  f"from the kubelet")
+                        # The same thing `docker compose up` does on a Docker machine:
+                        # put the collectors beside what they measure. Measuring half a
+                        # cluster and calling the rest a limitation was the wrong answer —
+                        # a cluster is a machine like any other, and gets the four signals.
+                        done, notes = k8s_install.install(address, token, name)
+                        for note in notes:
+                            app.logger.info("install %s: %s", name, note)
+                        detail += (" · installed Kepler and node-exporter" if done else
+                                   " · COULD NOT INSTALL the collectors: " +
+                                   "; ".join(n for n in notes if n.startswith("FAILED")))
                 if not ok:
                     message = f"Could not reach {address}: {detail}"
                 else:

@@ -57,18 +57,26 @@ and on {{ added }} it would mean {{ added }} itself.</p>
 
 <div id="k8s" style="display:none">
 <label><span>Token</span><textarea name="token" rows="3" placeholder="eyJhbGciOi..."></textarea></label>
-<p class="hint">A read-only ServiceAccount token. Apply this in that cluster and paste
-what it prints:</p>
+<p class="hint">A ServiceAccount token. Run this in that cluster and paste what the last
+line prints:</p>
 <pre>kubectl create ns p0-monitoring
 kubectl -n p0-monitoring create sa scraper
-kubectl create clusterrole p0-scraper \
-  --verb=get,list,watch \
+kubectl create clusterrolebinding p0-scraper \
+  --clusterrole=cluster-admin --serviceaccount=p0-monitoring:scraper
+kubectl -n p0-monitoring create token scraper --duration=8760h</pre>
+<p class="hint"><b>This token can write, and it has to.</b> On a Docker machine
+<span class="mono">docker compose up</span> installs the collectors; here the app installs
+the same ones as a DaemonSet, so it needs to create them. It only ever touches the
+<span class="mono">p0-monitoring</span> namespace and its own two cluster roles.</p>
+<p class="hint">Once the collectors are in, you can narrow it to read-only and the
+monitoring keeps working:</p>
+<pre>kubectl delete clusterrolebinding p0-scraper
+kubectl create clusterrole p0-scraper --verb=get,list,watch \
   --resource=nodes,nodes/proxy,nodes/metrics,pods,pods/proxy,services,services/proxy
 kubectl create clusterrolebinding p0-scraper \
-  --clusterrole=p0-scraper --serviceaccount=p0-monitoring:scraper
-kubectl -n p0-monitoring create token scraper --duration=8760h</pre>
-<p class="hint">The hub reaches everything through the API server, so nothing else has to
-be exposed — no NodePort, no Ingress, no route to the pod network.</p>
+  --clusterrole=p0-scraper --serviceaccount=p0-monitoring:scraper</pre>
+<p class="hint">Everything is reached through the API server, so nothing else has to be
+exposed — no NodePort, no Ingress, no route to the pod network.</p>
 </div>
 <details style="margin:14px 0 4px" id="portbox">
 <summary style="cursor:pointer">Ports, if that machine does not use the defaults</summary>

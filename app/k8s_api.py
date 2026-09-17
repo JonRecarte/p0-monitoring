@@ -133,6 +133,57 @@ def nodes(machine, token):
     return [(i.get("metadata") or {}).get("name", "") for i in payload.get("items") or []]
 
 
+def _path(obj):
+    """Where an object lives in the API, from the object itself.
+
+    apiVersion tells core from grouped, metadata.namespace tells namespaced from
+    cluster-scoped, and every kind we create pluralises by adding an s. No table to
+    keep in step with anything.
+    """
+    api = obj["apiVersion"]
+    base = f"/apis/{api}" if "/" in api else f"/api/{api}"
+    plural = obj["kind"].lower() + "s"
+    ns = (obj.get("metadata") or {}).get("namespace")
+    scope = f"/namespaces/{ns}" if ns else ""
+    return f"{base}{scope}/{plural}/{obj['metadata']['name']}"
+
+
+def apply(address, token, obj, manager="p0-monitoring", dry_run=False):
+    """Create or update one object, idempotently.
+
+    Server-side apply rather than create-then-fix-the-409: one call whether the object
+    is there or not, no resourceVersion to fetch, and the API server records that these
+    fields are ours — so re-installing never fights with whatever else touched it.
+
+    dry_run asks the API server to validate and admit the object and then throw it away.
+    It is how this can be checked against a real cluster — schema, permissions, admission
+    and all — without writing to one.
+    """
+    query = f"?fieldManager={manager}&force=true" + ("&dryRun=All" if dry_run else "")
+    url = _url(address, f"{_path(obj)}{query}")
+    req = urllib.request.Request(url, data=json.dumps(obj).encode(), method="PATCH")
+    req.add_header("Content-Type", "application/apply-patch+yaml")
+    req.add_header("Accept", "application/json")
+    if token:
+        req.add_header("Authorization", "Bearer " + token.strip())
+    with urllib.request.urlopen(req, timeout=20, context=_CTX) as r:
+        return r.status
+
+
+def delete(address, token, obj):
+    """Remove one object. A 404 counts as success: the point is that it is gone."""
+    req = urllib.request.Request(_url(address, _path(obj)), method="DELETE")
+    if token:
+        req.add_header("Authorization", "Bearer " + token.strip())
+    try:
+        with urllib.request.urlopen(req, timeout=20, context=_CTX) as r:
+            return r.status
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return 404
+        raise
+
+
 def survey(address, token):
     """What this cluster can actually give, looked up rather than assumed.
 
