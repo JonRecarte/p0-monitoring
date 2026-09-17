@@ -26,6 +26,8 @@ STACK_TEMPLATES = os.path.join(APP_DIR, "stack")
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 GENERATED_DIR = os.path.join(DATA_DIR, "generated")
 PROBER = os.environ.get("PROBER_NAME", "p0m-cloudprober")
+APP = os.environ.get("APP_NAME", "p0m-app")
+PROMETHEUS = os.environ.get("PROMETHEUS_NAME", "p0m-prometheus")
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
 
 _env = Environment(loader=FileSystemLoader(STACK_TEMPLATES), keep_trailing_newline=True,
@@ -116,6 +118,32 @@ def apply_local(config, changed):
         elif os.path.exists(cfg):
             notes.append("cloudprober is not running: nothing to restart")
         return notes
+
+
+def attach(container_name, networks, running=None):
+    """Put a container on every one of these networks. Idempotent, and says what it did.
+
+    Used for two things that are the same problem: the prober has to reach what it
+    probes, and the hub has to reach a cluster whose API server is a container here.
+    Also heals a rebuild, which loses every network but the compose one.
+    """
+    notes = []
+    if not networks:
+        return notes
+    try:
+        if running is None:
+            running = {c["name"]: c for c in docker_api.containers()}
+        target = running.get(container_name)
+        if not target:
+            return [f"{container_name} is not running: cannot attach it to "
+                    + ", ".join(sorted(networks))]
+        mine = set(target.get("networks") or [])
+        for net in sorted(set(networks) - mine):
+            docker_api.connect(net, target["id"])
+            notes.append(f"{container_name} attached to network {net}")
+    except Exception as exc:
+        notes.append(f"could not attach {container_name}: {exc}")
+    return notes
 
 
 def _attach_prober(config, running):

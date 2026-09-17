@@ -44,16 +44,21 @@ def get(machine, path, token, timeout=TIMEOUT, raw=False):
 
 
 def reachable(address, token):
-    """(ok, detail). Used by the Machines form before anything is saved."""
+    """(ok, detail, answered). Used by the Machines form before anything is saved.
+
+    `answered` separates "I could not get there" from "I got there and was turned away".
+    They need different help: the first is a routing problem the app may be able to solve
+    itself, the second is a wrong token and no amount of routing will fix it.
+    """
     try:
         v = get(address, "/version", token)
-        return True, f"Kubernetes {v.get('gitVersion', '?')}"
+        return True, f"Kubernetes {v.get('gitVersion', '?')}", True
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403):
-            return False, f"the API server refused the token (HTTP {exc.code})"
-        return False, f"HTTP {exc.code} from the API server"
+            return False, f"the API server refused the token (HTTP {exc.code})", True
+        return False, f"HTTP {exc.code} from the API server", True
     except Exception as exc:
-        return False, str(exc)
+        return False, str(exc), False
 
 
 def normalise(payload, all_states=False):

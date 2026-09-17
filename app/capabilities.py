@@ -110,6 +110,8 @@ def report():
                 'Put {"features": {"containerd-snapshotter": false}} in '
                 "/etc/docker/daemon.json and restart Docker."
             ) + " WARNING: images built with the snapshotter will no longer be visible "
-                "and need rebuilding."
+                "and need rebuilding. This affects containers on THIS machine only: a "
+                "Kubernetes cluster is measured through its own kubelet, which is "
+                "unaffected."
         ) if snapshotter else None,
     }

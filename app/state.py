@@ -141,5 +141,13 @@ def nodes(data):
     return [m for m in data.get("machines") or [] if m.get("role") != "hub"]
 
 
+def networks(data):
+    """Every Docker network the hub has to be on to reach the machines it was given."""
+    out = set()
+    for m in data.get("machines") or []:
+        out.update(m.get("networks") or [])
+    return sorted(out)
+
+
 def find(data, name):
     return next((m for m in data.get("machines") or [] if m.get("name") == name), None)

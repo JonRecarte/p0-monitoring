@@ -138,6 +138,12 @@ class Reconciler:
             return
         first = self._machines is None
         self._machines = machines
+        # The hub has to be on the networks of any machine that lives on one here. Doing
+        # it every time the list changes, and on the first pass, is what survives a
+        # rebuild — which drops every network but the compose one.
+        for container in (generator.APP, generator.PROMETHEUS):
+            for note in generator.attach(container, state_mod.networks(s)):
+                self._note(note)
         result = generator.generate_hub(s)
         if result["changed"] or first:
             if not first:

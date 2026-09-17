@@ -103,6 +103,29 @@ def containers(all_states=False):
 # external in the generated compose, and attaches the prober to whatever networks the
 # targets already live on.
 
+def publisher(port):
+    """The local container that publishes this host port, if any.
+
+    The general problem this answers: the address a person reads off their own machine
+    is not always an address a container can reach. A port published to 127.0.0.1 is
+    the clearest case — inside a container that is the container itself — but the same
+    holds for anything published on an interface the container has no route to.
+
+    When the thing behind that port is a container on this host, there is a better
+    address: the container itself, on a network we can join. That is true of kind, k3d
+    and minikube's docker driver without knowing anything about them, because it is a
+    fact about Docker, not about Kubernetes.
+    """
+    for c in _get("/containers/json") or []:
+        for p in c.get("Ports") or []:
+            if p.get("PublicPort") == port and p.get("PrivatePort"):
+                networks = sorted(((c.get("NetworkSettings") or {}).get("Networks") or {}).keys())
+                return {"name": (c.get("Names") or ["/?"])[0].lstrip("/"),
+                        "id": c["Id"], "private_port": p["PrivatePort"],
+                        "networks": networks, "published_on": p.get("IP")}
+    return None
+
+
 def connect(network, container_id):
     """Attach a container to a network. Returns True if it was actually attached now."""
     status, body = _post(f"/networks/{network}/connect", {"Container": container_id})

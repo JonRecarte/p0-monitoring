@@ -271,6 +271,19 @@ kubectl -n p0-monitoring create token scraper --duration=8760h
 Everything is scraped **through the API server's proxy**, so a cluster is one address and
 one token: no NodePort to open, no Ingress to configure, no route to the pod network.
 
+**If the address you can reach is not one the hub can**, it works that out. A cluster made
+with `kind`, `k3d` or minikube publishes its API server on loopback — `127.0.0.1:39441` and
+the like — and inside the hub's container that address means the container itself. So when
+an address never answers, the app looks for a container on this machine publishing that
+port, joins that container's network and talks to it directly, then tells you it did:
+
+> Kubernetes v1.37.0 · 1 node(s) · reached as `hucai-control-plane:6443`. `127.0.0.1:39441`
+> is a port published by the container `hucai-control-plane` on this machine, which the hub
+> cannot use from inside its own container.
+
+It only does this when nothing answered at all. An API server that answers and rejects your
+token is a token problem, and no amount of rerouting fixes it.
+
 The token is checked before the cluster is saved, and the app reports what it found — how
 many nodes, and whether Kepler and node-exporter are actually installed there. Often they
 are not, and then **that cluster has no energy and no host metrics**. The app says so when

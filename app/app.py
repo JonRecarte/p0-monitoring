@@ -214,9 +214,9 @@ def machines():
                 # A cluster is checked BEFORE it is saved. A Docker node cannot be: it
                 # may legitimately not be up yet, since the user still has to go and
                 # start it. A cluster is already running or it is not a cluster.
-                ok, detail = (True, None)
+                ok, detail, nets = True, None, []
                 if kind == "kubernetes":
-                    ok, detail = k8s_api.reachable(address, token)
+                    ok, address, nets, detail = _reach(address, token)
                     if ok:
                         f = k8s_api.survey(address, token)
                         missing = [n for n, present in
@@ -241,6 +241,10 @@ def machines():
                              "role": "node", "kind": kind}
                     if custom:
                         entry["ports"] = custom
+                    if nets:
+                        # Remembered so the reconciler can put the hub back on them:
+                        # a rebuild drops every network but the compose one.
+                        entry["networks"] = nets
                     if kind == "kubernetes":
                         state.save_token(name, token)
                     s["machines"].append(entry)
@@ -254,6 +258,56 @@ def machines():
                            kinds=state.KINDS,
                            loopback=request.host.split(":")[0] in
                                     ("localhost", "127.0.0.1", "::1"), step=0)
+
+
+LOOPBACK = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+def _split(address):
+    """host, port from what the user typed. Accepts a scheme and tolerates its absence."""
+    bare = address.split("://", 1)[-1].rstrip("/")
+    host, _, port = bare.partition(":")
+    return host, (int(port) if port.isdigit() else None)
+
+
+def _reach(address, token):
+    """Find an address for this cluster that the HUB can actually use.
+
+    The address a person reads off their own machine is the one their browser uses. Ours
+    is a container, and the two are not the same network. Rather than ask people to know
+    that, the app tries what they gave, and if that never gets there, looks for a local
+    container publishing that port — then joins that container's network and talks to it
+    directly. That is a fact about Docker, not about any one Kubernetes distribution, so
+    it covers kind, k3d and minikube's docker driver without naming any of them.
+
+    Returns (ok, address, networks, detail).
+    """
+    ok, detail, answered = k8s_api.reachable(address, token)
+    if ok or answered:
+        # Answered and refused is a token problem. Looking for another route would only
+        # find a different door to the same building — or worse, a different building.
+        return ok, address, [], detail
+
+    host, port = _split(address)
+    if not port:
+        return False, address, [], detail + " (no port given: an API server needs one)"
+
+    local = host in LOOPBACK or host.startswith("127.")
+    found = docker_api.publisher(port) if local else None
+    if not found:
+        return False, address, [], detail
+
+    # It is a container on this machine. Join its network and address it by name.
+    for note in generator.attach(generator.APP, found["networks"]):
+        app.logger.info("reach: %s", note)
+    candidate = f"{found['name']}:{found['private_port']}"
+    ok, detail2, _ = k8s_api.reachable(candidate, token)
+    if ok:
+        return True, candidate, found["networks"], (
+            f"{detail2} \u00b7 reached as {candidate}. {address} is a port published by "
+            f"the container {found['name']} on this machine, which the hub cannot use "
+            f"from inside its own container")
+    return False, address, [], f"{detail} \u00b7 also tried {candidate}: {detail2}"
 
 
 def _machine_health(s):
