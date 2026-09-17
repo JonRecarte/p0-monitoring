@@ -185,6 +185,9 @@ def step6_provision():
 def machines():
     s = _s()
     message = added = None
+    # What was typed, so a rejected form comes back filled in. Retyping an API server and
+    # a token because the port was wrong is how somebody decides this is not worth it.
+    form = {}
     if request.method == "POST":
         if request.form.get("remove"):
             name = request.form["remove"]
@@ -200,6 +203,7 @@ def machines():
             address = (request.form.get("address") or "").strip()
             kind = request.form.get("kind", "docker")
             token = (request.form.get("token") or "").strip()
+            form = {"name": name, "address": address, "kind": kind}
             if not name or not address:
                 message = "A machine needs both a name and an address."
             elif state.find(s, name):
@@ -243,9 +247,9 @@ def machines():
                     state.save(s)
                     generator.generate_hub(s)
                     generator.reload_prometheus()
-                    added, message = name, detail
+                    added, message, form = name, detail, {}
     return render_template("machines.html", s=s, health=_machine_health(s),
-                           message=message, added=added,
+                           message=message, added=added, form=form,
                            hub_address=request.host, defaults=state.DEFAULT_PORTS,
                            kinds=state.KINDS,
                            loopback=request.host.split(":")[0] in

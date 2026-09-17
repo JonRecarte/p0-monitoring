@@ -45,12 +45,14 @@ and on {{ added }} it would mean {{ added }} itself.</p>
 <label><span>Kind</span>
   <select name="kind" id="kind">
   {% for key, label in kinds.items() %}
-    <option value="{{ key }}">{{ label }}</option>
+    <option value="{{ key }}"{{ ' selected' if form.kind == key }}>{{ label }}</option>
   {% endfor %}
   </select>
 </label>
-<label><span>Name</span><input type="text" name="name" placeholder="test" required></label>
-<label><span>Address</span><input type="text" name="address" id="addr" placeholder="192.168.0.69" required></label>
+<label><span>Name</span><input type="text" name="name" placeholder="test"
+   value="{{ form.name or '' }}" required></label>
+<label><span>Address</span><input type="text" name="address" id="addr" placeholder="192.168.0.69"
+   value="{{ form.address or '' }}" required></label>
 
 <div id="k8s" style="display:none">
 <label><span>Token</span><textarea name="token" rows="3" placeholder="eyJhbGciOi..."></textarea></label>

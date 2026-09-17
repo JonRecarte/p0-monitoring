@@ -47,6 +47,16 @@ def _virtualised():
     return False
 
 
+def _docker_desktop():
+    """Docker Desktop, rather than a Docker installed on this machine.
+
+    Matters because the fix for the snapshotter is in a different place: Docker Desktop
+    does not read /etc/docker/daemon.json, it has its own settings. Telling somebody to
+    edit a file that their installation ignores is worse than saying nothing.
+    """
+    return "microsoft" in platform.release().lower()
+
+
 def report():
     """Full report. The UI renders it as-is."""
     reachable, version = docker_api.available()
@@ -92,8 +102,14 @@ def report():
         # Blocking: without this there is no CPU and no memory, and it must be said up front
         "blocker": (
             "Docker's storage driver is the containerd snapshotter. cAdvisor cannot read "
-            'containers with that driver. Fix: put {"features": {"containerd-snapshotter": false}} '
-            "in /etc/docker/daemon.json and restart Docker. WARNING: images built with the "
-            "snapshotter will no longer be visible."
+            "containers with that driver, so there is no CPU and no memory until it is "
+            "changed. " + (
+                "This is Docker Desktop: open Settings, turn OFF \u201cUse containerd for "
+                "pulling and storing images\u201d under General, and Apply & restart."
+                if _docker_desktop() else
+                'Put {"features": {"containerd-snapshotter": false}} in '
+                "/etc/docker/daemon.json and restart Docker."
+            ) + " WARNING: images built with the snapshotter will no longer be visible "
+                "and need rebuilding."
         ) if snapshotter else None,
     }
