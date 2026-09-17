@@ -11,7 +11,13 @@
 <pre>git clone https://github.com/JonRecarte/p0-monitoring.git
 cd p0-monitoring
 HUB=http://{{ hub_address }} docker compose up -d --build</pre>
+{% if loopback %}
+<p style="margin:0"><b>Replace <code>{{ hub_address }}</code> with this machine's address on
+the network.</b> You are browsing over loopback, so that is the only address this page knows —
+and on {{ added }} it would mean {{ added }} itself.</p>
+{% else %}
 <p style="margin:0">It will fetch its configuration from here and start reporting.</p>
+{% endif %}
 </div>
 {% endif %}
 
@@ -70,8 +76,14 @@ what you put here.</p>
 <label><span>{{ key }}</span><input type="number" name="port_{{ key }}" value="{{ default }}"></label>
 {% endfor %}
 </details>
-<div class="actions"><button type="submit">Add</button></div>
+<div class="actions"><button type="submit" class="sec">Add</button></div>
 </div></form>
+
+<div class="actions">
+  <a href="{{ '/status' if installed else '/discover' }}"
+     style="padding:9px 18px;text-decoration:none;background:var(--accent);color:#fff;border-radius:6px">
+     {{ 'Back to status' if installed else 'Continue to containers' }}</a>
+</div>
 <script>
 (function () {
   var k = document.getElementById('kind'), box = document.getElementById('k8s'),

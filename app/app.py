@@ -247,7 +247,9 @@ def machines():
     return render_template("machines.html", s=s, health=_machine_health(s),
                            message=message, added=added,
                            hub_address=request.host, defaults=state.DEFAULT_PORTS,
-                           kinds=state.KINDS, step=0)
+                           kinds=state.KINDS,
+                           loopback=request.host.split(":")[0] in
+                                    ("localhost", "127.0.0.1", "::1"), step=0)
 
 
 def _machine_health(s):
