@@ -14,6 +14,11 @@
 restarts: {% for c in unstable %}<code>{{ c.name }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p></div>
 {% endif %}
 
+{% if everything | length == 0 %}
+<div class="notice"><p style="color:inherit;margin:0">Nothing to show yet. If what you want to
+monitor runs on another machine or in a cluster, <a href="/machines">add it first</a>.</p></div>
+{% endif %}
+
 <form method="post"><div class="panel">
 <table>
 <tr><th></th><th>Machine</th><th>Container</th><th>Image</th><th>Project</th><th>Ports</th><th>Identity</th></tr>
@@ -31,6 +36,8 @@ restarts: {% for c in unstable %}<code>{{ c.name }}</code>{% if not loop.last %}
       {% else %}<span class="wn">name</span>{% endif %}</td></tr>
 {% endfor %}
 </table>
-<div class="actions"><button type="submit">Continue</button></div>
+<div class="actions"><a href="/machines" class="sec"
+   style="padding:9px 16px;text-decoration:none">Add a machine</a>
+<button type="submit">Continue</button></div>
 </div></form>
 {% endblock %}

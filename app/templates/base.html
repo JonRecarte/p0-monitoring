@@ -52,9 +52,11 @@ a{color:var(--accent)}
   {% else %}<a href="{{ href }}">{{n}}·{{t}}</a>{% endif %}
 {% endfor %}
   {% if step==6 %}<b>6·done</b>{% endif %}
-  {# no status link during the first install: nothing to look at yet #}
-  {% if installed %}<span style="margin-left:auto">
-    <a href="/machines">machines</a>&nbsp;&nbsp;<a href="/status"><b>status</b></a></span>{% endif %}
+  {# Machines is reachable from the start: what you want to monitor may live on
+     another machine, and you cannot get past step 3 until that machine is added.
+     Status only once there is something to look at. #}
+  <span style="margin-left:auto"><a href="/machines">machines</a>
+  {% if installed %}&nbsp;&nbsp;<a href="/status"><b>status</b></a>{% endif %}</span>
 </div>
 {% block body %}{% endblock %}
 </div></body></html>
