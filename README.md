@@ -59,53 +59,6 @@ series with Top 5 rankings, a full QoS section, and a summary of the machine.
 >
 > Check yours with `docker info | grep "Storage Driver"`.
 
-## The two ways to run it
-
-The same repository covers both. What changes is how many machines you install it on, not
-which version you install.
-
-**One machine.** The containers you want to measure run on the server you install on. This is
-the whole thing:
-
-```
-┌─ your server ─────────┐
-│  your containers      │
-│  collectors           │
-│  the app · the wizard │
-│  Prometheus · Grafana │
-└───────────────────────┘
-```
-
-**Several machines.** The containers live somewhere else, or on more than one box. The four
-collectors have to sit beside what they measure — they read the local kernel — so every
-machine runs them. Only one machine keeps the dashboards and the configuration, and that one
-is called the hub:
-
-```
-┌─ hub ─────────────────┐                      ┌─ node ────────────────┐
-│  your containers      │                      │  your containers      │
-│  collectors           │  ─── scrapes ──────→ │  collectors           │
-│  the app · the wizard │                      │  the app              │
-│  Prometheus · Grafana │ ←── asks for its ─── │                       │
-│                       │     configuration    └───────────────────────┘
-└───────────────────────┘                      ┌─ node ────────────────┐
-                                               │  …                    │
-                                               └───────────────────────┘
-```
-
-**One machine is not a separate mode.** The hub box is the same box as the first picture: a
-hub always measures itself as well, so one machine is simply this second picture with no nodes
-attached — same code, same screens, same dashboard. You can start with one machine and add a
-second later from the interface, without reinstalling anything or redoing the wizard.
-
-| | One machine | Several machines |
-|---|---|---|
-| **What you run** | the hub command, once | the hub command on one, the node command on each of the others |
-| **What it starts** | all seven containers | hub: seven · node: five |
-| **The wizard** | on that machine | on the hub only — nodes have no wizard |
-| **Where you point your browser** | `http://localhost:8000` | `http://<hub-ip>:8000` |
-| **Credentials needed** | none | none — see [how the two halves talk](#how-the-two-halves-talk) |
-
 ## Quick start
 
 Same repository and same compose file on every machine:
