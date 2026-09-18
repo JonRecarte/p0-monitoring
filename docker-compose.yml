@@ -26,7 +26,7 @@
 # PORTS. Every published port can be moved, for machines that already have something on
 # one of these. Put it in a .env file next to this one, or in the environment:
 #
-#   GRAFANA_PORT=3300 docker compose --profile hub up -d --build
+#   GRAFANA_PORT=3400 docker compose --profile hub up -d --build
 #
 # Only the HOST side moves; inside the network the ports never change, so a hub keeps
 # scraping its own collectors by service name regardless. If you move a port on a NODE,
@@ -62,7 +62,7 @@ services:
       KEPLER_PORT: ${KEPLER_PORT:-9102}
       CLOUDPROBER_PORT: ${CLOUDPROBER_PORT:-9313}
       PROMETHEUS_PORT: ${PROMETHEUS_PORT:-9090}
-      GRAFANA_PORT: ${GRAFANA_PORT:-3000}
+      GRAFANA_PORT: ${GRAFANA_PORT:-3300}
       # Passed in so the app knows whether the metrics were pointed at a directory, and
       # can give it the ownership those two need before they start. A volume name here
       # means there is nothing to prepare.
@@ -188,7 +188,10 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
-    ports: ["${GRAFANA_PORT:-3000}:3000"]
+    # 3300 rather than 3000 on purpose: 3000 is Grafana's own default, so anybody who
+    # already runs one — and people who run Grafana tend to run Grafana — collides on the
+    # first install. The container still listens on 3000; only where it surfaces moves.
+    ports: ["${GRAFANA_PORT:-3300}:3000"]
 
 volumes:
   prometheus-data:

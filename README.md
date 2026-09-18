@@ -140,8 +140,15 @@ and follow six screens:
 | 5 | **Confirm** | review, including the privileges about to be granted |
 | 6 | **Done** | links to Grafana and Prometheus |
 
-Grafana lands on **`:3000`** (`admin` / `admin` — change it), Prometheus on **`:9090`**.
+Grafana lands on **`:3300`** (`admin` / `admin` — change it), Prometheus on **`:9090`**.
 Data shows up after about 30 seconds.
+
+> [!NOTE]
+> **Grafana is on 3300, not 3000.** 3000 is Grafana's own default, so an install that
+> lands on it collides with the Grafana somebody already had — and people who run Grafana
+> tend to run Grafana. If you are upgrading from a version that used 3000, your dashboards
+> moved to `:3300`; the links on the wizard's last screen and on Status always point at
+> wherever it actually is.
 
 ### If one of those ports is taken
 
@@ -150,7 +157,7 @@ Every published port can be moved, from the environment or a `.env` file next to
 compose:
 
 ```bash
-GRAFANA_PORT=3300 PROMETHEUS_PORT=9190 docker compose --profile hub up -d --build
+GRAFANA_PORT=3400 PROMETHEUS_PORT=9190 docker compose --profile hub up -d --build
 ```
 
 > [!WARNING]
@@ -159,7 +166,7 @@ GRAFANA_PORT=3300 PROMETHEUS_PORT=9190 docker compose --profile hub up -d --buil
 > name`. Use:
 >
 > ```powershell
-> Set-Content -Path .env -Value "GRAFANA_PORT=3300" -Encoding ascii
+> Set-Content -Path .env -Value "GRAFANA_PORT=3400" -Encoding ascii
 > ```
 
 | Variable | Default | |
@@ -170,7 +177,7 @@ GRAFANA_PORT=3300 PROMETHEUS_PORT=9190 docker compose --profile hub up -d --buil
 | `KEPLER_PORT` | `9102` | energy |
 | `CLOUDPROBER_PORT` | `9313` | QoS |
 | `PROMETHEUS_PORT` | `9090` | hub only |
-| `GRAFANA_PORT` | `3000` | hub only |
+| `GRAFANA_PORT` | `3300` | hub only — not 3000, which is Grafana's own default and the one most likely to be taken |
 
 Only the host side moves. Inside the network the ports never change, so a hub keeps
 reaching its own collectors whatever you set.
@@ -187,7 +194,7 @@ fails to bind, so this is not a warning about something that might happen.
 It only sees containers. For something outside Docker on one of these ports:
 
 ```bash
-ss -ltn | grep -E ':(3000|8000|8080|9090|9100|9102|9313)'
+ss -ltn | grep -E ':(3300|8000|8080|9090|9100|9102|9313)'
 ```
 
 ## What gets deployed

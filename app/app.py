@@ -70,7 +70,7 @@ MY_PORTS = {name: os.environ.get(var, str(default))
                 ("app", "APP_PORT", 8000), ("cadvisor", "CADVISOR_PORT", 8080),
                 ("node", "NODE_EXPORTER_PORT", 9100), ("kepler", "KEPLER_PORT", 9102),
                 ("cloudprober", "CLOUDPROBER_PORT", 9313),
-                ("prometheus", "PROMETHEUS_PORT", 9090), ("grafana", "GRAFANA_PORT", 3000)]}
+                ("prometheus", "PROMETHEUS_PORT", 9090), ("grafana", "GRAFANA_PORT", 3300)]}
 
 
 @app.context_processor
