@@ -44,6 +44,8 @@ except Exception:
 # what to probe.
 try:
     generator.ensure_local()
+    if role.IS_HUB:
+        generator.ensure_storage()
 except Exception:
     pass
 

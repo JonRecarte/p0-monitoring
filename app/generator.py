@@ -76,6 +76,29 @@ def probes_for(config, matching):
     return out
 
 
+# Prometheus runs as nobody and Grafana as its own user, so a directory Docker created
+# for them is a directory they cannot write to. The app runs first — Prometheus waits on
+# its healthcheck — and it runs as root, so this is the one place that can fix it.
+STORAGE_OWNERS = {"prometheus": (65534, 65534), "grafana": (472, 0)}
+
+
+def ensure_storage():
+    """Prepare the directories where metrics go, for installs that keep them on disk
+    rather than in a Docker volume. Harmless when they are unused."""
+    notes = []
+    for name, (uid, gid) in STORAGE_OWNERS.items():
+        path = os.path.join(DATA_DIR, name)
+        try:
+            existed = os.path.isdir(path)
+            os.makedirs(path, exist_ok=True)
+            os.chown(path, uid, gid)
+            if not existed:
+                notes.append(f"prepared {path} for {name}")
+        except Exception as exc:
+            notes.append(f"could not prepare {path}: {exc}")
+    return notes
+
+
 def ensure_local():
     """Make sure this machine has a cloudprober configuration, even an empty one.
 

@@ -450,6 +450,44 @@ made before this moved is carried over automatically the first time the app star
 The one thing not in it is a cluster token, which lives beside it in
 `generated/tokens/<name>` — so this file can be read, shown and pasted into a ticket.
 
+## What survives what
+
+Two different things are kept, and they are kept differently on purpose.
+
+| | The configuration | The metrics |
+|---|---|---|
+| What it is | machines, rules, probes — one YAML file | 7 days of time series |
+| Where | `data/config.yaml`, beside the compose | a Docker volume, by default |
+| Losing it means | doing the install again | a gap in a graph |
+| Restarting anything | ✅ survives | ✅ survives |
+| `docker compose down` | ✅ survives | ✅ survives |
+| Rebooting the machine | ✅ survives | ✅ survives |
+| `docker compose down -v` | ✅ survives | ❌ gone |
+| **Destroying Docker itself** | ✅ survives | ❌ gone |
+
+That last row is the one worth knowing. On Linux it takes reinstalling Docker; on **Docker
+Desktop it is a button** — *Troubleshoot → Clean / Purge data* — and resetting the WSL2
+distribution does it too. Until recently the configuration was in that blast radius as
+well, which is why it now lives beside the compose file instead.
+
+If you would rather have the metrics on a disk you can back up, and can live with a bind
+mount being slower for a database of many small files:
+
+```bash
+PROMETHEUS_DATA=./data/prometheus GRAFANA_DATA=./data/grafana \
+  docker compose --profile hub up -d --build
+```
+
+The app prepares those directories with the ownership Prometheus and Grafana need, because
+a directory Docker creates for them is one they cannot write to.
+
+To copy the metrics out of a volume without moving to a bind mount:
+
+```bash
+docker run --rm -v p0-monitoring_prometheus-data:/from -v "$PWD:/to" \
+  alpine tar czf /to/prometheus-backup.tar.gz -C /from .
+```
+
 ## Limitations
 
 Worth knowing before you invest time:
@@ -463,9 +501,9 @@ Worth knowing before you invest time:
 - **A pod is probed by its IP**, because a pod has no name its network resolves. The
   reconciler rewrites the probes when pods are recreated, so expect the QoS series to
   follow a pod rather than a workload.
-- **Resetting Docker itself loses everything.** Purging Docker Desktop's data, or
-  recreating its WSL2 distribution, takes the metrics volume with it — and until this
-  release it took the state file too. Keep a copy of `config.yaml`.
+- **Resetting Docker itself loses the metrics.** Purging Docker Desktop's data, or
+  recreating its WSL2 distribution, takes the volume with it. The configuration no longer
+  lives there — see *What survives what*.
 - **A cluster that cannot pull an image leaves that signal missing.** Applying a DaemonSet
   and running one are different things — an air-gapped cluster, or one without an IPv6
   route to a registry that needs it, will accept Kepler and never start it. *Status* lists

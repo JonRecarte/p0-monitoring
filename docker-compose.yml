@@ -14,6 +14,18 @@
 # inside Docker's own virtual machine, invisible from the host and gone the moment that
 # VM is reset. Set DATA_PATH to put it elsewhere.
 #
+# METRICS. Prometheus and Grafana keep theirs in named Docker volumes, which is the right
+# default for a time series database: thousands of small files with fsync, which a bind
+# mount on Docker Desktop makes slow and permission-prone. A volume survives restarts,
+# `compose down` and reboots — but NOT destroying Docker itself, and on Docker Desktop
+# that is a button in the troubleshooting menu. If you would rather have the history on
+# an ordinary disk you can back up, point PROMETHEUS_DATA and GRAFANA_DATA at paths:
+#
+#   PROMETHEUS_DATA=./data/prometheus GRAFANA_DATA=./data/grafana docker compose ...
+#
+# The configuration is never in there. It is in ./data, deliberately, because losing it
+# means doing the install again and losing metrics only means a gap in a graph.
+#
 # PORTS. Every published port can be moved, for machines that already have something on
 # one of these. Put it in a .env file next to this one, or in the environment:
 #
@@ -147,7 +159,7 @@ services:
         condition: service_healthy   # the app writes prometheus.yml before this starts
     volumes:
       - ${DATA_PATH:-./data}/generated:/etc/prometheus:ro
-      - prometheus-data:/prometheus
+      - ${PROMETHEUS_DATA:-prometheus-data}:/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -164,7 +176,7 @@ services:
     depends_on: [prometheus]
     volumes:
       - ${DATA_PATH:-./data}/generated/grafana:/etc/grafana/provisioning:ro
-      - grafana-data:/var/lib/grafana
+      - ${GRAFANA_DATA:-grafana-data}:/var/lib/grafana
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
