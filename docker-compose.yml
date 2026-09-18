@@ -62,6 +62,11 @@ services:
       CLOUDPROBER_PORT: ${CLOUDPROBER_PORT:-9313}
       PROMETHEUS_PORT: ${PROMETHEUS_PORT:-9090}
       GRAFANA_PORT: ${GRAFANA_PORT:-3000}
+      # Passed in so the app knows whether the metrics were pointed at a directory, and
+      # can give it the ownership those two need before they start. A volume name here
+      # means there is nothing to prepare.
+      PROMETHEUS_DATA: ${PROMETHEUS_DATA:-prometheus-data}
+      GRAFANA_DATA: ${GRAFANA_DATA:-grafana-data}
     ports:
       - "${APP_PORT:-8000}:8000"
       # A cluster made with kind, k3d or minikube binds its API server to loopback on

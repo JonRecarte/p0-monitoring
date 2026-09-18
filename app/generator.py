@@ -83,19 +83,26 @@ STORAGE_OWNERS = {"prometheus": (65534, 65534), "grafana": (472, 0)}
 
 
 def ensure_storage():
-    """Prepare the directories where metrics go, for installs that keep them on disk
-    rather than in a Docker volume. Harmless when they are unused."""
+    """Prepare the directories where metrics go — only for installs that asked for them.
+
+    Nothing happens on a default install, where the metrics are in a Docker volume and
+    these directories would be litter. Compose passes the chosen paths in, so the app
+    knows which case it is in rather than guessing.
+    """
     notes = []
     for name, (uid, gid) in STORAGE_OWNERS.items():
-        path = os.path.join(DATA_DIR, name)
+        chosen = os.environ.get(f"{name.upper()}_DATA", "")
+        # A value without a separator is a Docker volume name, not a path: nothing to do.
+        if not chosen or "/" not in chosen:
+            continue
+        path = os.path.join(DATA_DIR, os.path.basename(chosen.rstrip("/")))
         try:
-            existed = os.path.isdir(path)
             os.makedirs(path, exist_ok=True)
-            os.chown(path, uid, gid)
-            if not existed:
-                notes.append(f"prepared {path} for {name}")
+            if os.stat(path).st_uid != uid:
+                os.chown(path, uid, gid)
+                notes.append(f"prepared {path} so {name} can write to it")
         except Exception as exc:
-            notes.append(f"could not prepare {path}: {exc}")
+            notes.append(f"could not prepare {path} for {name}: {exc}")
     return notes
 
 
