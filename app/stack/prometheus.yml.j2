@@ -38,6 +38,12 @@ scrape_configs:
   # labels its series `namespace` and `pod` itself — in Kubernetes the dimensions the
   # dashboards want are native, and none of the Docker translation below is needed.
   - job_name: cadvisor-{{ m.name }}
+    # A kubelet takes seconds to render its cAdvisor metrics — measured at 7-9s for 2.1 MB
+    # on a busy single-node cluster, and 15-16s once a LAN is in the way. The 10s default
+    # is tuned for a local exporter answering in milliseconds, and against a kubelet it
+    # produces `context deadline exceeded` and a target that looks broken rather than slow.
+    scrape_interval: {{ p.get('k8s_scrape_interval', '30s') }}
+    scrape_timeout: {{ p.get('k8s_scrape_timeout', '25s') }}
     scheme: https
 {{ auth }}
     kubernetes_sd_configs:

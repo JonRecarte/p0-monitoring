@@ -209,7 +209,7 @@ def step6_provision():
 @hub_only
 def machines():
     s = _s()
-    message = added = None
+    message = added = added_kind = None
     # What was typed, so a rejected form comes back filled in. Retyping an API server and
     # a token because the port was wrong is how somebody decides this is not worth it.
     form = {}
@@ -300,8 +300,9 @@ def machines():
                     generator.generate_hub(s)
                     generator.reload_prometheus()
                     added, message, form = name, detail, {}
+                    added_kind = kind
     return render_template("machines.html", s=s, health=_machine_health(s),
-                           message=message, added=added, form=form,
+                           message=message, added=added, added_kind=added_kind, form=form,
                            hub_address=request.host, defaults=state.DEFAULT_PORTS,
                            kinds=state.KINDS,
                            loopback=request.host.split(":")[0] in

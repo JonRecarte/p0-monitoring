@@ -5,7 +5,13 @@
 <div class="notice"><p style="color:inherit;margin:0">{{ message }}</p></div>
 {% endif %}
 
-{% if added %}
+{% if added and added_kind == 'kubernetes' %}
+<div class="panel">
+<table><tr><th>Nothing to run on {{ added }}</th></tr></table>
+<p style="margin:0">Its collectors were installed from here. <a href="/status">Status</a>
+lists them and says whether each one is actually running.</p>
+</div>
+{% elif added %}
 <div class="panel">
 <table><tr><th>Run this on {{ added }}</th></tr></table>
 <pre>git clone https://github.com/JonRecarte/p0-monitoring.git
