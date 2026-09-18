@@ -114,6 +114,27 @@ def _migrate(data):
     return data
 
 
+# Where the state lived before it moved next to the compose file. Carried over once, if
+# it is there: an upgrade that silently comes up with nothing configured looks exactly
+# like a broken install, and the person has no reason to suspect a path changed.
+LEGACY = os.environ.get("LEGACY_STATE_PATH", "/legacy/config.yaml")
+
+
+def adopt_legacy():
+    """Move an older install's state to where it lives now. Returns what it did, or None."""
+    if os.path.exists(PATH) or not os.path.exists(LEGACY):
+        return None
+    try:
+        with open(LEGACY) as fh:
+            data = yaml.safe_load(fh) or {}
+        if not data:
+            return None
+        save(data)
+        return f"carried the existing configuration over from {LEGACY}"
+    except Exception as exc:
+        return f"found a configuration at {LEGACY} but could not read it: {exc}"
+
+
 def load():
     if not os.path.exists(PATH):
         return {k: (list(v) if isinstance(v, list) else v) for k, v in EMPTY.items()}

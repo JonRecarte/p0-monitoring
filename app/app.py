@@ -7,6 +7,8 @@ import os
 import socket
 import urllib.request
 
+import yaml
+
 from flask import (Flask, Response, jsonify, redirect, render_template, request,
                    url_for)
 
@@ -28,6 +30,14 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 # the only difference is where the configuration comes from.
 RECONCILER = reconciler.Reconciler()
 RECONCILER.start()
+
+# Before anything reads the state: if this install predates the state moving out of
+# /opt, carry it over. Coming up blank after an upgrade is indistinguishable from a
+# broken install, and nobody would think to suspect a path.
+try:
+    _adopted = state.adopt_legacy()
+except Exception:
+    _adopted = None
 
 # Every machine gets a valid, empty prober configuration before anything else, so a
 # machine that has just joined does not sit in a restart loop while it waits to be told
@@ -522,6 +532,21 @@ def status():
                            report=capabilities.report(), health=_machine_health(s),
                            collectors=_cluster_collectors(s),
                            problems=problems, reconciler=RECONCILER.snapshot(), step=0)
+
+
+@app.route("/config.yaml")
+@hub_only
+def download_config():
+    """The state file, to keep somewhere that is not this machine.
+
+    It is the only thing here that cannot be rebuilt, and the cheapest insurance against
+    losing it is being able to save a copy without knowing where it lives or how to get
+    a shell inside a container.
+    """
+    body = yaml.safe_dump(_s(), allow_unicode=True, sort_keys=False,
+                          default_flow_style=False)
+    return Response(body, mimetype="application/x-yaml", headers={
+        "Content-Disposition": 'attachment; filename="p0-monitoring-config.yaml"'})
 
 
 @app.route("/reset", methods=["POST"])

@@ -14,3 +14,6 @@ example-workload/
 
 # per-machine port overrides
 .env
+
+# the state and everything generated from it
+data/

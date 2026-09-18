@@ -8,6 +8,12 @@
 # the hub. The hub measures itself through the same five, so it is simply the machine
 # that also holds the control plane.
 #
+# STATE. Everything the app knows is one readable file, and it lands in ./data next to
+# this compose by default — somewhere you can see it, copy it and back it up. It used to
+# be /opt/p0-monitoring, which on Docker Desktop is not on your machine at all: it is
+# inside Docker's own virtual machine, invisible from the host and gone the moment that
+# VM is reset. Set DATA_PATH to put it elsewhere.
+#
 # PORTS. Every published port can be moved, for machines that already have something on
 # one of these. Put it in a .env file next to this one, or in the environment:
 #
@@ -30,7 +36,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # discover containers, restart the prober
       - /sys:/host/sys:ro                           # capability detection: RAPL, cgroups
-      - /opt/p0-monitoring:/data                    # state and generated configuration
+      - ${DATA_PATH:-./data}:/data                  # state and generated configuration
+      # Where the state used to be. Read-only, and only so that an install made before
+      # it moved is picked up and carried over instead of silently coming up blank.
+      - ${LEGACY_DATA_PATH:-/opt/p0-monitoring}:/legacy:ro
     environment:
       HUB: ${HUB:-}          # unset = this machine is the hub
       # what this machine publishes, so the app can link to it and tell a hub about it
@@ -123,7 +132,7 @@ services:
     # The DIRECTORY is mounted, not the file: a single-file bind mount keeps following
     # the old inode when the app rewrites it.
     volumes:
-      - /opt/p0-monitoring/generated:/etc/cloudprober:ro
+      - ${DATA_PATH:-./data}/generated:/etc/cloudprober:ro
     command: ["--config_file=/etc/cloudprober/cloudprober.cfg"]
     ports: ["${CLOUDPROBER_PORT:-9313}:9313"]
 
@@ -137,7 +146,7 @@ services:
       app:
         condition: service_healthy   # the app writes prometheus.yml before this starts
     volumes:
-      - /opt/p0-monitoring/generated:/etc/prometheus:ro
+      - ${DATA_PATH:-./data}/generated:/etc/prometheus:ro
       - prometheus-data:/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -154,7 +163,7 @@ services:
     restart: unless-stopped
     depends_on: [prometheus]
     volumes:
-      - /opt/p0-monitoring/generated/grafana:/etc/grafana/provisioning:ro
+      - ${DATA_PATH:-./data}/generated/grafana:/etc/grafana/provisioning:ro
       - grafana-data:/var/lib/grafana
     environment:
       GF_SECURITY_ADMIN_USER: admin

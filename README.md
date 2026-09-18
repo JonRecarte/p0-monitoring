@@ -415,7 +415,8 @@ their last known state rather than vanishing.
 
 ## Configuration
 
-Everything the app knows lives in one readable file, `/opt/p0-monitoring/config.yaml`:
+Everything the app knows lives in one readable file, **`data/config.yaml` next to the
+compose file**:
 
 ```yaml
 capabilities:
@@ -438,6 +439,13 @@ hold Docker hosts and clusters at once, and the same server can be both.
 **This is the only file that cannot be rebuilt.** `prometheus.yml`, `cloudprober.cfg`, the
 Grafana provisioning and the manifests applied to a cluster are all derived from it and
 regenerated on demand. Back up one file; move to another machine by copying one file.
+*Status → Save configuration* downloads it, so you never have to go and find it.
+
+It lives next to the compose file on purpose. It used to be `/opt/p0-monitoring`, which on
+**Docker Desktop is not on your machine at all** — that path is inside Docker's own virtual
+machine, invisible from Windows or macOS and gone the moment that VM is reset. An install
+made before this moved is carried over automatically the first time the app starts; set
+`DATA_PATH` if you want it somewhere else.
 
 The one thing not in it is a cluster token, which lives beside it in
 `generated/tokens/<name>` — so this file can be read, shown and pasted into a ticket.
@@ -455,6 +463,9 @@ Worth knowing before you invest time:
 - **A pod is probed by its IP**, because a pod has no name its network resolves. The
   reconciler rewrites the probes when pods are recreated, so expect the QoS series to
   follow a pod rather than a workload.
+- **Resetting Docker itself loses everything.** Purging Docker Desktop's data, or
+  recreating its WSL2 distribution, takes the metrics volume with it — and until this
+  release it took the state file too. Keep a copy of `config.yaml`.
 - **A cluster that cannot pull an image leaves that signal missing.** Applying a DaemonSet
   and running one are different things — an air-gapped cluster, or one without an IPv6
   route to a registry that needs it, will accept Kepler and never start it. *Status* lists
