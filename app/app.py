@@ -127,7 +127,8 @@ def step2_capabilities():
                              for k, v in report["signals"].items()}
         state.save(s)
         return redirect(url_for("step3_discover"))
-    return render_template("step2.html", s=s, report=report, step=2)
+    return render_template("step2.html", s=s, report=report,
+                           conflicts=generator.port_conflicts(), step=2)
 
 
 # ------------------------------------------------------ step 3: containers and rules
@@ -579,6 +580,7 @@ def status():
                            report=capabilities.report(), health=_machine_health(s),
                            collectors=_cluster_collectors(s),
                            same_host=_same_host(s),
+                           conflicts=generator.port_conflicts(),
                            stranded=generator.stranded_metrics(),
                            problems=problems, reconciler=RECONCILER.snapshot(), step=0)
 

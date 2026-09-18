@@ -1,0 +1,8 @@
+{% for c in conflicts %}
+<div class="notice bad"><p style="color:inherit;margin:0">
+<b>Port {{ c.port }} is already taken by the container <span class="mono">{{ c.holder }}</span>.</b>
+It is the port this stack publishes for {{ c.what }}, so whichever of the two starts first
+wins and the other fails to bind. Move ours: stop this stack, put
+<span class="mono">{{ c.variable }}={{ c.port + 300 }}</span> in a
+<span class="mono">.env</span> file next to the compose, and bring it up again.</p></div>
+{% endfor %}

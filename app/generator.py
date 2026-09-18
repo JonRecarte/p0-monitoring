@@ -108,6 +108,37 @@ def ensure_storage():
 
 LEGACY_METRICS = os.environ.get("LEGACY_METRICS_PATH", "/legacy-metrics")
 
+# What this machine publishes, and the variable that moves each one. The app can see who
+# holds a port — it has the Docker socket — so there is no excuse for letting two things
+# fight over one and leaving the loser to fail with a message nobody connects to us.
+OUR_PORTS = [("app", "APP_PORT"), ("cadvisor", "CADVISOR_PORT"),
+             ("node", "NODE_EXPORTER_PORT"), ("kepler", "KEPLER_PORT"),
+             ("cloudprober", "CLOUDPROBER_PORT"), ("prometheus", "PROMETHEUS_PORT"),
+             ("grafana", "GRAFANA_PORT")]
+
+
+def port_conflicts():
+    """Ports of ours that another container on this machine also publishes.
+
+    Whoever starts first wins and the other fails to bind, so this is not a warning
+    about something that might happen: it is one of them already being broken, or about
+    to be the next time either restarts.
+    """
+    out = []
+    for name, var in OUR_PORTS:
+        port = os.environ.get(var)
+        if not port or not port.isdigit():
+            continue
+        try:
+            holder = docker_api.publisher(int(port))
+        except Exception:
+            continue
+        # Ours are the ones in our own Compose project; anything else is a stranger.
+        if holder and not holder["name"].startswith("p0m-"):
+            out.append({"what": name, "port": int(port), "variable": var,
+                        "holder": holder["name"]})
+    return out
+
 
 def stranded_metrics():
     """History left behind in the Docker volume the metrics used to live in.

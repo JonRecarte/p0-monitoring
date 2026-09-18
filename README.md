@@ -170,7 +170,12 @@ reaching its own collectors whatever you set.
 machine does not use the defaults*. Otherwise the hub keeps scraping the old one and that
 machine shows up silent.
 
-Check what is already listening before you install:
+You do not have to check first: the app has the Docker socket, so it sees which of its
+ports another container already publishes and says which one and who holds it, on the
+capabilities screen and on Status. Whichever of the two starts first wins and the other
+fails to bind, so this is not a warning about something that might happen.
+
+It only sees containers. For something outside Docker on one of these ports:
 
 ```bash
 ss -ltn | grep -E ':(3000|8000|8080|9090|9100|9102|9313)'

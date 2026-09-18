@@ -1,4 +1,5 @@
 {% extends "base.html" %}{% block title %}Status{% endblock %}{% block body %}
+{% include "_conflicts.html" %}
 <h1>Status</h1>
 
 {% for name, h in health.items() %}
