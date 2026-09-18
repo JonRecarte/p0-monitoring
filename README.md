@@ -153,6 +153,15 @@ compose:
 GRAFANA_PORT=3300 PROMETHEUS_PORT=9190 docker compose --profile hub up -d --build
 ```
 
+> [!WARNING]
+> **On PowerShell, do not create that file with `echo … > .env`.** It writes UTF-16 with a
+> byte-order mark, and Compose refuses it with `unexpected character "\xff\xfe" in variable
+> name`. Use:
+>
+> ```powershell
+> Set-Content -Path .env -Value "GRAFANA_PORT=3300" -Encoding ascii
+> ```
+
 | Variable | Default | |
 |---|---|---|
 | `APP_PORT` | `8000` | the app: the wizard, the API, this machine's inventory |
