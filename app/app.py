@@ -677,8 +677,14 @@ def api_capabilities():
 
 @app.route("/api/containers")
 def api_containers():
-    """This machine's containers. A node serves this so the hub can discover."""
-    return jsonify(docker_api.containers(all_states=True))
+    """This machine's containers. A node serves this so the hub can discover.
+
+    `all=1` includes the stopped ones. The default is running only, to match what the
+    hub sees when it reads its own socket: a container that is stopped should not be
+    offered for selection on one machine and hidden on another.
+    """
+    want_all = request.args.get("all") in ("1", "true", "yes")
+    return jsonify(docker_api.containers(all_states=want_all))
 
 
 @app.route("/api/stack")
