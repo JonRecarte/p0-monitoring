@@ -533,6 +533,7 @@ def status():
                            matching=rules.evaluate(s.get("rules"), s.get("exclusions"), everything),
                            report=capabilities.report(), health=_machine_health(s),
                            collectors=_cluster_collectors(s),
+                           stranded=generator.stranded_metrics(),
                            problems=problems, reconciler=RECONCILER.snapshot(), step=0)
 
 

@@ -454,16 +454,23 @@ The one thing not in it is a cluster token, which lives beside it in
 
 Two different things are kept, and they are kept differently on purpose.
 
+Everything this app keeps is in the **`data/` folder next to the compose file** — the
+configuration and the metrics both. One folder to copy, one folder to back up.
+
 | | The configuration | The metrics |
 |---|---|---|
 | What it is | machines, rules, probes — one YAML file | 7 days of time series |
-| Where | `data/config.yaml`, beside the compose | a Docker volume, by default |
+| Where | `data/config.yaml` | `data/prometheus` |
 | Losing it means | doing the install again | a gap in a graph |
-| Restarting anything | ✅ survives | ✅ survives |
-| `docker compose down` | ✅ survives | ✅ survives |
-| Rebooting the machine | ✅ survives | ✅ survives |
-| `docker compose down -v` | ✅ survives | ❌ gone |
-| **Destroying Docker itself** | ✅ survives | ❌ gone |
+| Restarting anything | ✅ | ✅ |
+| `docker compose down` | ✅ | ✅ |
+| Rebooting the machine | ✅ | ✅ |
+| `docker compose down -v` | ✅ | ✅ |
+| **Destroying Docker itself** | ✅ | ✅ |
+| Deleting the `data/` folder | ❌ | ❌ |
+
+The only thing that loses it is deleting that folder, which is something you do on
+purpose. *Status → Save configuration* downloads the one file worth keeping elsewhere.
 
 ### Turning the machine off and on
 
@@ -491,37 +498,36 @@ Desktop it is a button** — *Troubleshoot → Clean / Purge data* — and reset
 distribution does it too. Until recently the configuration was in that blast radius as
 well, which is why it now lives beside the compose file instead.
 
-### Keeping the metrics out of Docker's reach too
+### Why not a Docker volume
 
-> [!TIP]
-> **On Docker Desktop, do this.** A volume there lives inside a virtual machine that an
-> update, a backend switch or a reset can replace, and none of those feel destructive
-> while you are doing them. The usual argument for volumes — a time series database is
-> many small files and a bind mount is slower — is about scale this tool rarely reaches:
-> a handful of machines is a few hundred series, not a few million.
+The textbook answer for a time series database is a named volume, because it is many
+small files and a bind mount is slower. That argument is about millions of series; a
+handful of machines is a few hundred. Meanwhile a volume lives wherever Docker keeps them
+— on Docker Desktop, inside a virtual machine that an update or a backend switch can
+replace, neither of which feels destructive while you do it.
 
-Put this in a `.env` file next to the compose:
+On a large Linux install the trade-off flips back, and `PROMETHEUS_DATA` and
+`GRAFANA_DATA` take a volume name instead of a path:
 
 ```
-PROMETHEUS_DATA=./data/prometheus
-GRAFANA_DATA=./data/grafana
+PROMETHEUS_DATA=prometheus-data
+GRAFANA_DATA=grafana-data
 ```
 
-Then everything this app keeps — configuration and history — is in one `data/` folder you
-can see, copy and back up:
-
-```bash
-docker compose --profile hub up -d --build
-```
+**Upgrading from a version that used volumes**: the history already in them is not read,
+and the status page says how much is sitting there and what to do about it. The
+configuration carries itself over.
 
 The app prepares those directories with the ownership Prometheus and Grafana need, because
 a directory Docker creates for them is one they cannot write to.
 
-To copy the metrics out of a volume without moving to a bind mount:
+To get history out of an old volume and into the new location:
 
 ```bash
-docker run --rm -v p0-monitoring_prometheus-data:/from -v "$PWD:/to" \
-  alpine tar czf /to/prometheus-backup.tar.gz -C /from .
+docker compose --profile hub stop prometheus
+docker run --rm -v p0-monitoring_prometheus-data:/from -v "$PWD/data/prometheus:/to" \
+  alpine sh -c 'cp -a /from/. /to/'
+docker compose --profile hub start prometheus
 ```
 
 ## Limitations
@@ -537,9 +543,8 @@ Worth knowing before you invest time:
 - **A pod is probed by its IP**, because a pod has no name its network resolves. The
   reconciler rewrites the probes when pods are recreated, so expect the QoS series to
   follow a pod rather than a workload.
-- **Resetting Docker itself loses the metrics.** Purging Docker Desktop's data, or
-  recreating its WSL2 distribution, takes the volume with it. The configuration no longer
-  lives there — see *What survives what*.
+- **Everything lives in `data/`**, so deleting that folder loses both the configuration
+  and the history. Nothing Docker does to itself will — see *What survives what*.
 - **A cluster that cannot pull an image leaves that signal missing.** Applying a DaemonSet
   and running one are different things — an air-gapped cluster, or one without an IPv6
   route to a registry that needs it, will accept Kepler and never start it. *Status* lists

@@ -35,6 +35,15 @@ rebuilt. Keep a copy somewhere that is not this machine.</p>
 {% endfor %}
 </table></div>
 
+{% if stranded %}
+<div class="notice"><p style="color:inherit;margin:0"><b>{{ stranded }} of older metrics are
+still in the Docker volume <span class="mono">p0-monitoring_prometheus-data</span>.</b>
+Metrics now live in <span class="mono">data/prometheus</span>, next to the compose file, so
+that losing Docker does not lose them. The history from before that change is not being
+read — copy it across if you want it, or remove the volume with
+<span class="mono">docker volume rm p0-monitoring_prometheus-data</span>.</p></div>
+{% endif %}
+
 {% if collectors %}
 <div class="panel"><table>
 <tr><th>Collector</th><th>Cluster</th><th>State</th></tr>

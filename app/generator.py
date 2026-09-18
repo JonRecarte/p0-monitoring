@@ -106,6 +106,34 @@ def ensure_storage():
     return notes
 
 
+LEGACY_METRICS = os.environ.get("LEGACY_METRICS_PATH", "/legacy-metrics")
+
+
+def stranded_metrics():
+    """History left behind in the Docker volume the metrics used to live in.
+
+    Returns a human-readable size, or None. Changing where something is stored and
+    walking away from what was already there is the same silent loss this project keeps
+    removing — so it is looked for, and said.
+    """
+    marker = os.path.join(LEGACY_METRICS, "wal")
+    if not os.path.isdir(marker):
+        return None
+    total = 0
+    for root, _, files in os.walk(LEGACY_METRICS):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    if total < 1_000_000:                       # an empty or freshly created volume
+        return None
+    for unit in ("MB", "GB"):
+        total /= 1000_000 if unit == "MB" else 1000
+        if total < 1000 or unit == "GB":
+            return f"{total:.1f} {unit}"
+
+
 def ensure_local():
     """Make sure this machine has a cloudprober configuration, even an empty one.
 
