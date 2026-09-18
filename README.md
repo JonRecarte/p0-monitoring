@@ -465,6 +465,27 @@ Two different things are kept, and they are kept differently on purpose.
 | `docker compose down -v` | ✅ survives | ❌ gone |
 | **Destroying Docker itself** | ✅ survives | ❌ gone |
 
+### Turning the machine off and on
+
+**Nothing to do, and nothing lost.** Every container is `restart: unless-stopped`, so once
+Docker is running again they come back by themselves, and the app does a start-up pass:
+re-attaching networks, asking its nodes to republish any cluster they were reaching, and
+checking what has appeared or gone while it was down.
+
+The one thing to confirm, once, is that Docker starts with the machine — on Docker Desktop
+that is *Settings → General → Start Docker Desktop when you sign in*, which is on by
+default. If you would rather start it by hand, the command is the same one you installed
+with, minus the build:
+
+```bash
+docker compose --profile hub up -d
+```
+
+Losing data needs something deliberate: `down -v`, or destroying Docker. A power cut does
+not qualify.
+
+### The row worth knowing
+
 That last row is the one worth knowing. On Linux it takes reinstalling Docker; on **Docker
 Desktop it is a button** — *Troubleshoot → Clean / Purge data* — and resetting the WSL2
 distribution does it too. Until recently the configuration was in that blast radius as
