@@ -39,6 +39,32 @@ container and a pod are the same kind of row; the machine they live on is a filt
 Everything lands in a single Grafana dashboard: an inventory table, per-container time
 series with Top 5 rankings, a full QoS section, and a summary of the machine.
 
+## How much of this is manual
+
+Everything below is done **once per machine**, and nothing else is ever typed by hand:
+
+| To measure | What you run there | Where |
+|---|---|---|
+| The machine the dashboards live on | one `docker compose` | [Quick start](#quick-start) |
+| Another Docker host | one `docker compose`, with `HUB=` | [Quick start](#quick-start) |
+| A Kubernetes cluster | one block of `kubectl`, to make a token | [A Kubernetes cluster](#a-kubernetes-cluster) |
+
+Everything after that is the app's job: finding the containers, deriving the rule,
+installing the collectors — into a cluster too — writing the scrape configuration,
+reaching a cluster whose API server is bound to loopback on another machine, attaching the
+prober to the networks its targets live on, and keeping all of it in step as containers
+come and go.
+
+**Why it is not zero.** Both remaining commands are the same thing: for this to measure a
+machine, something on that machine has to let it in. On a Docker host that permission is
+starting the containers; in a cluster it is creating a ServiceAccount and handing over its
+token.
+
+It could be avoided by asking you for SSH credentials or your whole kubeconfig. That would
+be worse: the hub would then hold a master key to machines that are not its own. As it
+stands **the hub never lets itself in anywhere** — it is let in, one machine at a time, and
+you can take the permission back without touching anything else.
+
 ## Requirements
 
 - **Linux** with **cgroups v2**
