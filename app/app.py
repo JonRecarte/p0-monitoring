@@ -5,6 +5,7 @@ The app is NOT in the data path. If it dies, the collectors keep measuring.
 import json
 import os
 import socket
+import time
 import urllib.request
 
 import yaml
@@ -341,14 +342,26 @@ def _local_target(address):
         return None, []
     # Published by a container here: join its network and address it by name, which is
     # also what makes it forwardable — the app has to be able to reach it to forward it.
-    for note in generator.attach(generator.APP, found["networks"]):
+    joined = generator.attach(generator.APP, found["networks"])
+    for note in joined:
         app.logger.info("expose: %s", note)
+
+    # Joining a network is not instant: the interface appears before Docker's embedded
+    # DNS will answer for names on it, so the first attempt resolves nothing and the
+    # whole thing reports "connection refused" — then works when you try again. Failing
+    # once on the first go and succeeding on the second is worse than being slow, so
+    # this waits for the network it just joined rather than asking the person to retry.
     target = f"{found['name']}:{found['private_port']}"
-    try:
-        socket.create_connection((found["name"], found["private_port"]), timeout=4).close()
-        return target, found["networks"]
-    except OSError:
-        return None, []
+    for attempt in range(6):
+        try:
+            socket.create_connection(
+                (found["name"], found["private_port"]), timeout=4).close()
+            if attempt:
+                app.logger.info("expose: %s answered after %ss", target, attempt)
+            return target, found["networks"]
+        except OSError:
+            time.sleep(1)
+    return None, []
 
 
 @app.route("/api/expose", methods=["POST"])
@@ -396,9 +409,12 @@ def _through_nodes(s, name, address):
             req = urllib.request.Request(
                 url, data=json.dumps({"name": name, "address": address}).encode(),
                 headers={"Content-Type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=10) as r:
+            # Generous: the node may be joining a Docker network to answer this, and
+            # waiting for it beats a timeout that reads as "that node cannot see it".
+            with urllib.request.urlopen(req, timeout=25) as r:
                 answer = json.load(r)
-        except Exception:
+        except Exception as exc:
+            app.logger.info("expose: %s could not publish %s: %s", m["name"], address, exc)
             continue
         if answer.get("ok"):
             return f"{m['address']}:{answer['port']}", m["name"]
