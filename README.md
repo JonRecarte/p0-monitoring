@@ -491,12 +491,27 @@ Desktop it is a button** — *Troubleshoot → Clean / Purge data* — and reset
 distribution does it too. Until recently the configuration was in that blast radius as
 well, which is why it now lives beside the compose file instead.
 
-If you would rather have the metrics on a disk you can back up, and can live with a bind
-mount being slower for a database of many small files:
+### Keeping the metrics out of Docker's reach too
+
+> [!TIP]
+> **On Docker Desktop, do this.** A volume there lives inside a virtual machine that an
+> update, a backend switch or a reset can replace, and none of those feel destructive
+> while you are doing them. The usual argument for volumes — a time series database is
+> many small files and a bind mount is slower — is about scale this tool rarely reaches:
+> a handful of machines is a few hundred series, not a few million.
+
+Put this in a `.env` file next to the compose:
+
+```
+PROMETHEUS_DATA=./data/prometheus
+GRAFANA_DATA=./data/grafana
+```
+
+Then everything this app keeps — configuration and history — is in one `data/` folder you
+can see, copy and back up:
 
 ```bash
-PROMETHEUS_DATA=./data/prometheus GRAFANA_DATA=./data/grafana \
-  docker compose --profile hub up -d --build
+docker compose --profile hub up -d --build
 ```
 
 The app prepares those directories with the ownership Prometheus and Grafana need, because
