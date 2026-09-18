@@ -35,6 +35,16 @@ rebuilt. Keep a copy somewhere that is not this machine.</p>
 {% endfor %}
 </table></div>
 
+{% for group in same_host %}
+<div class="notice"><p style="color:inherit;margin:0"><b>{{ group | join(' and ') }} are the
+same computer.</b> They booted at the same second and report the same memory, so the host
+metrics — CPU, RAM, disk, network — arrive twice under two names. That is fine to look at
+one at a time, and wrong to add up: it would double a real machine.
+<br>Usually this means a server was added both as a Docker host and as the cluster running
+on it. Both views are useful — one answers whether the machine is saturated, the other
+which pod — but only one of them is measuring the machine.</p></div>
+{% endfor %}
+
 {% if stranded %}
 <div class="notice"><p style="color:inherit;margin:0"><b>{{ stranded }} of older metrics are
 still in the Docker volume <span class="mono">p0-monitoring_prometheus-data</span>.</b>

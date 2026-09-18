@@ -464,6 +464,30 @@ def _reach(address, token, name_hint=None):
     return False, address, [], detail, None
 
 
+def _same_host(s):
+    """Machines that are really the same computer, seen twice.
+
+    Adding a server both as a Docker host and as the cluster running on it is a useful
+    thing to do — one answers "is the machine saturated", the other "which pod". But then
+    the HOST metrics arrive twice under two names, identical, and anything that adds them
+    up doubles a real machine. That is the mistake that once produced 595 W of estimated
+    power for four VMs on one physical host, and it is worth naming rather than leaving
+    somebody to notice that two lines on a graph are suspiciously alike.
+
+    Boot time to the second, with the same amount of memory, is the same kernel.
+    """
+    try:
+        rows = _promql('node_boot_time_seconds and on(cluster) node_memory_MemTotal_bytes')
+    except Exception:
+        return []
+    seen = {}
+    for r in rows:
+        cluster = r["metric"].get("cluster")
+        if cluster:
+            seen.setdefault(r["value"][1], []).append(cluster)
+    return [sorted(names) for names in seen.values() if len(names) > 1]
+
+
 def _cluster_collectors(s):
     """Which of the collectors this app installed are actually running, per cluster.
 
@@ -501,17 +525,21 @@ def _cluster_collectors(s):
     return out
 
 
+def _promql(query, timeout=6):
+    """One instant query against our own Prometheus. Raises; callers decide."""
+    import urllib.parse
+    q = urllib.parse.urlencode({"query": query})
+    with urllib.request.urlopen(
+            f"{generator.PROMETHEUS_URL}/api/v1/query?{q}", timeout=timeout) as r:
+        return json.load(r)["data"]["result"]
+
+
 def _machine_health(s):
     """Is each machine reporting? Read straight from Prometheus `up`."""
-    import json
-    import urllib.parse
-    import urllib.request
     out = {}
     try:
-        q = urllib.parse.urlencode({"query": 'sum by (cluster) (up)'})
-        with urllib.request.urlopen(f"{generator.PROMETHEUS_URL}/api/v1/query?{q}", timeout=6) as r:
-            for row in json.load(r)["data"]["result"]:
-                out[row["metric"].get("cluster")] = float(row["value"][1])
+        for row in _promql('sum by (cluster) (up)'):
+            out[row["metric"].get("cluster")] = float(row["value"][1])
     except Exception:
         pass
     health = {}
@@ -534,6 +562,7 @@ def status():
                            matching=rules.evaluate(s.get("rules"), s.get("exclusions"), everything),
                            report=capabilities.report(), health=_machine_health(s),
                            collectors=_cluster_collectors(s),
+                           same_host=_same_host(s),
                            stranded=generator.stranded_metrics(),
                            problems=problems, reconciler=RECONCILER.snapshot(), step=0)
 
