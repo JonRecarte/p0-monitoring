@@ -27,7 +27,9 @@ and on {{ added }} it would mean {{ added }} itself.</p>
 <tr><td class="mono lead">{{ m.name }}</td>
   <td class="mono">{{ m.address }}{% if m.ports %}
       <br><span class="hint">{{ m.ports.items() | map('join', ':') | join(' · ') }}</span>{% endif %}
-      {% if m.networks %}<br><span class="hint">via {{ m.networks | join(', ') }}</span>{% endif %}</td>
+      {% if m.networks %}<br><span class="hint">via {{ m.networks | join(', ') }}</span>{% endif %}
+      {% if m.via %}<br><span class="hint">published by {{ m.via }}, which is on its
+      machine ({{ m.via_address }} there)</span>{% endif %}</td>
   <td class="mono">{{ m.kind or 'docker' }}</td>
   <td class="mono">{{ m.role }}</td>
   <td>{% set h = health.get(m.name) %}

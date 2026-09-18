@@ -41,7 +41,14 @@ services:
       CLOUDPROBER_PORT: ${CLOUDPROBER_PORT:-9313}
       PROMETHEUS_PORT: ${PROMETHEUS_PORT:-9090}
       GRAFANA_PORT: ${GRAFANA_PORT:-3000}
-    ports: ["${APP_PORT:-8000}:8000"]
+    ports:
+      - "${APP_PORT:-8000}:8000"
+      # A cluster made with kind, k3d or minikube binds its API server to loopback on
+      # the machine that made it, so from anywhere else it does not exist. When that
+      # machine runs a node, the hub asks the node to publish it, and it comes out here.
+      # Four, because a machine can hold more than one cluster and there is no reason to
+      # make the second one a special case.
+      - "${CLUSTER_PORTS:-6443-6446}:6443-6446"
 
   # CPU, memory, limits and container labels. Must be local: reads the cgroupfs.
   cadvisor:

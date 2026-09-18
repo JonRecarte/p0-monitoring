@@ -2,13 +2,17 @@
 
 The app is NOT in the data path. If it dies, the collectors keep measuring.
 """
+import json
 import os
+import socket
+import urllib.request
 
 from flask import (Flask, Response, jsonify, redirect, render_template, request,
                    url_for)
 
 import capabilities
 import docker_api
+import forwarder
 import generator
 import inventory
 import k8s_api
@@ -228,9 +232,9 @@ def machines():
                 # A cluster is checked BEFORE it is saved. A Docker node cannot be: it
                 # may legitimately not be up yet, since the user still has to go and
                 # start it. A cluster is already running or it is not a cluster.
-                ok, detail, nets = True, None, []
+                ok, detail, nets, via = True, None, [], None
                 if kind == "kubernetes":
-                    ok, address, nets, detail = _reach(address, token)
+                    ok, address, nets, detail, via = _reach(address, token, name)
                     if ok:
                         f = k8s_api.survey(address, token)
                         detail = (f"{detail} · {len(f['nodes'])} node(s) · CPU and memory "
@@ -263,6 +267,12 @@ def machines():
                         # Remembered so the reconciler can put the hub back on them:
                         # a rebuild drops every network but the compose one.
                         entry["networks"] = nets
+                    if via:
+                        # Which node is publishing it. Remembered for the same reason:
+                        # if that node restarts, its forward goes with it, and the
+                        # reconciler has to ask for it again.
+                        entry["via"] = via
+                        entry["via_address"] = request.form.get("address", "").strip()
                     if kind == "kubernetes":
                         state.save_token(name, token)
                     s["machines"].append(entry)
@@ -288,44 +298,149 @@ def _split(address):
     return host, (int(port) if port.isdigit() else None)
 
 
-def _reach(address, token):
+def _local_target(address):
+    """An address for `address` that works from THIS machine, or None.
+
+    No credentials and no protocol: it opens a socket and sees. That is the question a
+    node is being asked — "can you see this thing?" — and the answer must not depend on
+    holding a token or on what speaks at the other end.
+    """
+    host, port = _split(address)
+    if not port:
+        return None, []
+    try:
+        socket.create_connection((host, port), timeout=4).close()
+        return f"{host}:{port}", []
+    except OSError:
+        pass
+    if not (host in LOOPBACK or host.startswith("127.")):
+        return None, []
+    found = docker_api.publisher(port)
+    if not found:
+        return None, []
+    # Published by a container here: join its network and address it by name, which is
+    # also what makes it forwardable — the app has to be able to reach it to forward it.
+    for note in generator.attach(generator.APP, found["networks"]):
+        app.logger.info("expose: %s", note)
+    target = f"{found['name']}:{found['private_port']}"
+    try:
+        socket.create_connection((found["name"], found["private_port"]), timeout=4).close()
+        return target, found["networks"]
+    except OSError:
+        return None, []
+
+
+@app.route("/api/expose", methods=["POST"])
+def api_expose():
+    """Publish something only this machine can see, so the hub can reach it.
+
+    The hub asks this of every node when it cannot reach a cluster itself. A node that
+    cannot see it says so and nothing happens; the one that can starts a forward and
+    answers with the port, and from then on the cluster has an ordinary address like any
+    other machine.
+
+    The forward is dumb TCP, so TLS goes through untouched: the certificate is still the
+    API server's and this node never sees a token.
+    """
+    body = request.get_json(silent=True) or {}
+    name, address = (body.get("name") or "").strip(), (body.get("address") or "").strip()
+    if not name or not address:
+        return jsonify({"ok": False, "error": "name and address are required"}), 400
+    if body.get("withdraw"):
+        return jsonify({"ok": True, "withdrawn": forwarder.withdraw(name)})
+    target, _ = _local_target(address)
+    if not target:
+        return jsonify({"ok": False, "error": f"this machine cannot reach {address}"}), 404
+    try:
+        port = forwarder.expose(name, target)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "port": port, "target": target})
+
+
+def _through_nodes(s, name, address):
+    """Ask every Docker node whether it can see this cluster, and let the first that can
+    publish it. Returns (address, node) or (None, None).
+
+    Asking all of them rather than making the user say which is the point: the user
+    already told us the address as their cluster's machine knows it, and only one machine
+    will recognise it. Making them also name the node would be asking for something the
+    app can find out.
+    """
+    for m in state.nodes(s):
+        if state.kind(m) != "docker" or m.get("address") in ("local", "", None):
+            continue
+        url = f"http://{m['address']}:{state.ports(m)['app']}/api/expose"
+        try:
+            req = urllib.request.Request(
+                url, data=json.dumps({"name": name, "address": address}).encode(),
+                headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=10) as r:
+                answer = json.load(r)
+        except Exception:
+            continue
+        if answer.get("ok"):
+            return f"{m['address']}:{answer['port']}", m["name"]
+    return None, None
+
+
+def _reach(address, token, name_hint=None):
     """Find an address for this cluster that the HUB can actually use.
 
-    The address a person reads off their own machine is the one their browser uses. Ours
-    is a container, and the two are not the same network. Rather than ask people to know
-    that, the app tries what they gave, and if that never gets there, looks for a local
-    container publishing that port — then joins that container's network and talks to it
-    directly. That is a fact about Docker, not about any one Kubernetes distribution, so
-    it covers kind, k3d and minikube's docker driver without naming any of them.
+    The address a person reads off their cluster's machine is the one that machine uses.
+    Three things can be true, and the app works through them rather than asking:
 
-    Returns (ok, address, networks, detail).
+      1 · it just works
+      2 · it is a container on THIS machine addressed the way its host sees it — join
+          its network and use its name
+      3 · it is on another machine, bound to loopback there, so it is on no network at
+          all — a node is already on that machine, so the node publishes it
+
+    Case 3 is the one that cannot be solved by being cleverer on the hub: the thing
+    genuinely is not reachable, and something standing next to it has to say so out loud.
+    That is what a node is for.
+
+    Returns (ok, address, networks, detail, via).
     """
     ok, detail, answered = k8s_api.reachable(address, token)
     if ok or answered:
         # Answered and refused is a token problem. Looking for another route would only
         # find a different door to the same building — or worse, a different building.
-        return ok, address, [], detail
+        return ok, address, [], detail, None
 
     host, port = _split(address)
     if not port:
-        return False, address, [], detail + " (no port given: an API server needs one)"
+        return False, address, [], detail + " (no port given: an API server needs one)", None
 
+    # 1 \u00b7 Is it something on THIS machine that we are addressing the wrong way? That is
+    #     the case when the hub and the cluster share a host.
     local = host in LOOPBACK or host.startswith("127.")
     found = docker_api.publisher(port) if local else None
-    if not found:
-        return False, address, [], detail
+    if found:
+        for note in generator.attach(generator.APP, found["networks"]):
+            app.logger.info("reach: %s", note)
+        candidate = f"{found['name']}:{found['private_port']}"
+        ok, detail2, _ = k8s_api.reachable(candidate, token)
+        if ok:
+            return True, candidate, found["networks"], (
+                f"{detail2} \u00b7 reached as {candidate}. {address} is a port published "
+                f"by the container {found['name']} on this machine, which the hub cannot "
+                f"use from inside its own container"), None
+        detail = f"{detail} \u00b7 also tried {candidate}: {detail2}"
 
-    # It is a container on this machine. Join its network and address it by name.
-    for note in generator.attach(generator.APP, found["networks"]):
-        app.logger.info("reach: %s", note)
-    candidate = f"{found['name']}:{found['private_port']}"
-    ok, detail2, _ = k8s_api.reachable(candidate, token)
-    if ok:
-        return True, candidate, found["networks"], (
-            f"{detail2} \u00b7 reached as {candidate}. {address} is a port published by "
-            f"the container {found['name']} on this machine, which the hub cannot use "
-            f"from inside its own container")
-    return False, address, [], f"{detail} \u00b7 also tried {candidate}: {detail2}"
+    # 2 \u00b7 Then it is on somebody else's machine. A node is already there and may see it:
+    #     that is what a node is for. Let it publish it rather than asking a person to.
+    via_address, via = _through_nodes(state.load(), name_hint or "cluster", address)
+    if via_address:
+        ok, detail3, _ = k8s_api.reachable(via_address, token)
+        if ok:
+            return True, via_address, [], (
+                f"{detail3} \u00b7 reached through the node {via}, which published it at "
+                f"{via_address}. {address} is bound to loopback on that machine, so it "
+                f"exists nowhere else on the network"), via
+        detail = f"{detail} \u00b7 node {via} published it but it did not answer: {detail3}"
+
+    return False, address, [], detail, None
 
 
 def _machine_health(s):

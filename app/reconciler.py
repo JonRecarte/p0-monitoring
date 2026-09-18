@@ -45,6 +45,7 @@ class Reconciler:
         self._probe = None
         self._machines = None
         self._cluster_probes = {}
+        self._forwards = {}
         self._thread = None
 
     # ------------------------------------------------------------------ lifecycle
@@ -155,6 +156,41 @@ class Reconciler:
             if "prometheus" in result["changed"]:
                 self._note("  " + generator.reload_prometheus())
 
+    def _republish(self, s):
+        """Ask again for the forwards that reach a cluster through a node.
+
+        A forward lives in the node's process. Restart that node and it is gone, and the
+        cluster behind it goes silent for a reason nobody could guess from the dashboard.
+        Asking on every pass costs one request and is idempotent — the node returns the
+        port it already has rather than opening another.
+        """
+        for m in s.get("machines") or []:
+            if not m.get("via") or not m.get("via_address"):
+                continue
+            node = state_mod.find(s, m["via"])
+            if not node:
+                continue
+            url = f"http://{node['address']}:{state_mod.ports(node)['app']}/api/expose"
+            payload = json.dumps({"name": m["name"], "address": m["via_address"]}).encode()
+            try:
+                req = urllib.request.Request(
+                    url, data=payload, method="POST",
+                    headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    answer = json.load(r)
+            except Exception as exc:
+                if self._forwards.get(m["name"]) != "down":
+                    self._note(f"{m['name']}: {m['via']} is not answering about its "
+                               f"forward: {exc}")
+                    self._forwards[m["name"]] = "down"
+                continue
+            state_now = f"{answer.get('ok')}:{answer.get('port')}"
+            if state_now != self._forwards.get(m["name"]):
+                self._forwards[m["name"]] = state_now
+                self._note(f"{m['name']}: reached through {m['via']} on port "
+                           f"{answer.get('port')}" if answer.get("ok") else
+                           f"{m['name']}: {m['via']} can no longer see it")
+
     def _clusters_side(self, s):
         """Keep each cluster's probes in step with the pods that match.
 
@@ -167,6 +203,7 @@ class Reconciler:
         on which pods were picked, and re-applying them every fifteen seconds would be
         noise in somebody else's cluster.
         """
+        self._republish(s)
         cfg = {k: s.get(k) for k in ("rules", "exclusions", "probes")}
         if not cfg.get("rules") or not cfg.get("probes"):
             return
