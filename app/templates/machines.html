@@ -97,6 +97,23 @@ what you put here.</p>
      style="padding:9px 18px;text-decoration:none;background:var(--accent);color:#fff;border-radius:6px">
      {{ 'Back to status' if installed else 'Continue to containers' }}</a>
 </div>
+
+{% if installed %}
+<details style="margin-top:34px">
+<summary style="cursor:pointer;color:var(--soft)">Start over</summary>
+<div class="panel" style="margin-top:12px">
+<p style="margin:0 0 10px">Throws away every machine, rule and probe and takes you back to
+the first screen. Collectors this app installed into a cluster are removed as well.</p>
+<p class="hint" style="margin:0 0 14px">Nothing else is touched: the containers you are
+monitoring keep running, and so does the measuring stack. Metrics already collected stay
+in Prometheus.</p>
+<form method="post" action="/reset" style="margin:0">
+  <input type="hidden" name="confirm" value="yes">
+  <button type="submit" class="sec">Yes, start over</button>
+</form>
+</div>
+</details>
+{% endif %}
 <script>
 (function () {
   var k = document.getElementById('kind'), box = document.getElementById('k8s'),

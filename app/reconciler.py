@@ -48,6 +48,17 @@ class Reconciler:
         self._forwards = {}
         self._thread = None
 
+    def forget(self):
+        """Drop every fingerprint, so the next pass treats everything as new.
+
+        Needed after the state is wiped: the loop only acts when something differs from
+        the last pass, and it would otherwise compare an empty configuration against
+        what it remembers and conclude, correctly but uselessly, that nothing changed.
+        """
+        self._targets = self._probe = self._machines = None
+        self._cluster_probes, self._forwards = {}, {}
+        self._note("state reset: starting from nothing")
+
     # ------------------------------------------------------------------ lifecycle
     def start(self):
         if not self.enabled:

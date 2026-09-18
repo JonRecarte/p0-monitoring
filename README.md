@@ -107,7 +107,7 @@ and follow six screens:
 
 | | Screen | What you do |
 |---|---|---|
-| 1 | **Environment** | name this machine |
+| 1 | **This machine** | give it a name |
 | 2 | **Capabilities** | nothing — the app reports what it can and cannot measure here |
 | 3 | **Containers** | tick the containers you care about |
 | 4 | **QoS** | port and path for the health probe |
@@ -251,6 +251,16 @@ do not convert it to kWh for a report, and do not compare it across different ha
 useful for ranking containers on the same host and watching trends. Screen 2 tells you which
 one you are getting, before anything is installed.
 
+## Starting over
+
+*Machines → Start over*, at the bottom. It throws away every machine, rule and probe and
+returns to the first screen, and removes the collectors it installed into any cluster.
+
+Nothing else is touched: the containers being monitored keep running, so does the stack,
+and metrics already collected stay in Prometheus. Stopping or rebuilding the stack does
+**not** do this — the state file is the one thing that cannot be rebuilt, so it survives on
+purpose.
+
 ## Adding or removing containers
 
 Go to **Status → Add or remove containers**, adjust the selection, and confirm. The app
@@ -306,18 +316,27 @@ touches the `p0-monitoring` namespace and its own two cluster roles, and once th
 collectors are in you can narrow it to read-only — the screen gives those commands too.
 
 **The address you can reach may not be one the hub can, and it works that out.** A cluster
-made with `kind`, `k3d` or minikube publishes its API server on loopback —
-`https://127.0.0.1:39441` and the like — and inside the hub's container that address means
-the container itself. So when an address never answers, the app looks for a container on
-this machine publishing that port, joins that container's network and talks to it directly,
-then says so:
+made with `kind`, `k3d` or minikube binds its API server to loopback —
+`https://127.0.0.1:39441` and the like. Type it in anyway. Two things can happen:
 
-> reached as `hucai-control-plane:6443`. `127.0.0.1:39441` is a port published by the
-> container `hucai-control-plane` on this machine, which the hub cannot use from inside its
-> own container.
+- **The cluster is on the hub's own machine.** The app finds the container publishing that
+  port, joins its network and talks to it by name.
+- **The cluster is on another machine that runs a node.** The hub asks every node whether
+  it can see that address; the one that can opens a forward and answers with a port. The
+  cluster then has an ordinary address like any other machine.
 
-It only does that when nothing answered at all. An API server that answers and rejects your
-token is a token problem, and no amount of rerouting fixes it.
+Either way it says what it did:
+
+> reached through the node `lab`, which published it at `192.168.0.189:6443`.
+> `127.0.0.1:39441` is bound to loopback on that machine, so it exists nowhere else on the
+> network.
+
+The forward is plain TCP, so TLS passes through untouched: the certificate is still the API
+server's and the node never sees your token. The reconciler asks for it again on every
+pass, so a node that restarts does not quietly take the cluster with it.
+
+It only looks for a route when nothing answered at all. An API server that answers and
+rejects your token is a token problem, and no amount of rerouting fixes it.
 
 Removing the machine removes the collectors again. Leaving a privileged DaemonSet behind in
 somebody's cluster because they clicked Remove here would be rude.
@@ -410,6 +429,10 @@ Worth knowing before you invest time:
 - **A pod is probed by its IP**, because a pod has no name its network resolves. The
   reconciler rewrites the probes when pods are recreated, so expect the QoS series to
   follow a pod rather than a workload.
+- **A cluster that cannot pull an image leaves that signal missing.** Applying a DaemonSet
+  and running one are different things — an air-gapped cluster, or one without an IPv6
+  route to a registry that needs it, will accept Kepler and never start it. *Status* lists
+  each collector and its state so this is visible rather than an empty panel.
 - **A node's code does not update itself**, only its configuration. Changing the app means
   `git pull` and a rebuild on each machine.
 - **Nothing is authenticated**, neither the app nor the collector ports nor the endpoint a

@@ -29,6 +29,14 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 RECONCILER = reconciler.Reconciler()
 RECONCILER.start()
 
+# Every machine gets a valid, empty prober configuration before anything else, so a
+# machine that has just joined does not sit in a restart loop while it waits to be told
+# what to probe.
+try:
+    generator.ensure_local()
+except Exception:
+    pass
+
 # The hub writes its scrape configuration up front, so Prometheus has something valid
 # to start with. Its healthcheck is what Prometheus waits on.
 if role.IS_HUB:
@@ -443,6 +451,43 @@ def _reach(address, token, name_hint=None):
     return False, address, [], detail, None
 
 
+def _cluster_collectors(s):
+    """Which of the collectors this app installed are actually running, per cluster.
+
+    A DaemonSet that was accepted is not a DaemonSet that is running: on a real cluster
+    Kepler was applied fine and then could not pull its image, and the only symptom was
+    an energy panel with nothing in it. An installed-but-not-running collector has to say
+    so somewhere, or the signal goes missing in the one way this project keeps trying to
+    make impossible — quietly.
+    """
+    out = {}
+    for m in s.get("machines") or []:
+        if state.kind(m) != "kubernetes":
+            continue
+        try:
+            pods = k8s_api.get(m["address"],
+                               f"/api/v1/namespaces/{k8s_install.NS}/pods",
+                               state.read_token(m["name"]), timeout=6)
+        except Exception as exc:
+            out[m["name"]] = {"error": str(exc)[:90]}
+            continue
+        found = {}
+        for p in pods.get("items") or []:
+            name = (p.get("metadata") or {}).get("name", "")
+            phase = ((p.get("status") or {}).get("phase") or "").lower()
+            reason = ""
+            for cs in (p.get("status") or {}).get("containerStatuses") or []:
+                waiting = (cs.get("state") or {}).get("waiting") or {}
+                if waiting.get("reason"):
+                    reason = waiting["reason"]
+            for what in ("kepler", "node-exporter", "cloudprober"):
+                if name.startswith(what):
+                    found[what] = reason or phase
+        out[m["name"]] = {w: found.get(w, "not deployed")
+                          for w in ("kepler", "node-exporter", "cloudprober")}
+    return out
+
+
 def _machine_health(s):
     """Is each machine reporting? Read straight from Prometheus `up`."""
     import json
@@ -475,7 +520,38 @@ def status():
     return render_template("status.html", s=s, stack=generator.stack_status(),
                            matching=rules.evaluate(s.get("rules"), s.get("exclusions"), everything),
                            report=capabilities.report(), health=_machine_health(s),
+                           collectors=_cluster_collectors(s),
                            problems=problems, reconciler=RECONCILER.snapshot(), step=0)
+
+
+@app.route("/reset", methods=["POST"])
+@hub_only
+def reset():
+    """Start the wizard again from nothing.
+
+    Deliberately explicit rather than a side effect of anything else: the state file is
+    the only thing here that cannot be rebuilt, so stopping, rebuilding or restarting
+    the stack all leave it alone on purpose. That left `docker exec … rm /data/config.yaml`
+    as the only way to start over, which is not an answer.
+
+    What was installed into a cluster is removed first, for the same reason removing a
+    machine removes it: forgetting about a privileged DaemonSet is not the same as not
+    having put one there.
+    """
+    if request.form.get("confirm") != "yes":
+        return redirect(url_for("machines"))
+    s = _s()
+    for m in s.get("machines") or []:
+        if state.kind(m) == "kubernetes":
+            try:
+                k8s_install.uninstall(m.get("address", ""), state.read_token(m["name"]),
+                                      m["name"])
+            except Exception as exc:
+                app.logger.warning("reset: could not clean %s: %s", m["name"], exc)
+        state.drop_token(m["name"])
+    state.save(dict(state.EMPTY, machines=[], rules=[], probes=[]))
+    RECONCILER.forget()
+    return redirect(url_for("step1_environment"))
 
 
 @app.route("/containers")

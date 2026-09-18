@@ -76,6 +76,23 @@ def probes_for(config, matching):
     return out
 
 
+def ensure_local():
+    """Make sure this machine has a cloudprober configuration, even an empty one.
+
+    Without it the container exits at start-up and Docker restarts it forever, which is
+    what a node looks like between joining and the hub being configured. Nothing is
+    wrong in that window — there is simply nothing to probe yet — but a container in a
+    restart loop says the opposite, and that is the kind of lie this project keeps
+    finding and removing.
+    """
+    with LOCK:
+        dest = os.path.join(GENERATED_DIR, "cloudprober.cfg")
+        if os.path.exists(dest):
+            return False
+        _write(dest, _env.get_template("cloudprober.cfg.j2").render(probes=[]))
+        return True
+
+
 def generate_local(config):
     """Write what this machine is responsible for. Returns a summary."""
     with LOCK:

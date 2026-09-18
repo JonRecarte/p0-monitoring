@@ -31,6 +31,29 @@
 {% endfor %}
 </table></div>
 
+{% if collectors %}
+<div class="panel"><table>
+<tr><th>Collector</th><th>Cluster</th><th>State</th></tr>
+{% for cluster, found in collectors.items() %}
+  {% if found.error %}
+<tr><td class="mono" colspan="2">{{ cluster }}</td>
+  <td><span class="no">cannot be asked: {{ found.error }}</span></td></tr>
+  {% else %}
+  {% for what, st in found.items() %}
+<tr><td class="mono lead">{{ what }}</td><td class="mono">{{ cluster }}</td>
+  <td>{% if st == 'running' %}<span class="yes">running</span>
+      {% elif st == 'not deployed' %}<span class="wn">not deployed</span>
+      {% else %}<span class="no">{{ st }}</span>{% endif %}</td></tr>
+  {% endfor %}
+  {% endif %}
+{% endfor %}
+</table>
+<p class="hint" style="margin:12px 0 0">Applied is not running. A collector that cannot
+start — an image it cannot pull, a node that will not schedule it — takes its signal with
+it, and an empty panel does not say which.</p>
+</div>
+{% endif %}
+
 <div class="panel"><table>
 <tr><th>Reconciler ({{ role_text }})</th><th></th></tr>
 <tr><td class="mono">state</td>
