@@ -413,6 +413,17 @@ machines as far as this is concerned, and you add it twice:
 `lab-host` answers *"is the machine saturated?"*. `lab` answers *"which pod?"*. Same
 dashboard, told apart by the **Machine** filter.
 
+**Its host metrics then arrive twice**, under both names and identical, because there is one
+computer underneath. Status says which machines are really one — it compares boot time and
+memory — so that nobody adds them up and doubles a real machine. Looking at them one at a
+time is what they are for.
+
+> [!NOTE]
+> The **containerd snapshotter** blocks CPU and memory for the *Docker* half of such a host,
+> and not for the cluster half: the cluster is measured through its own kubelet. On a machine
+> whose storage driver you would rather not change, the cluster still gives you everything and
+> the Docker view gives you the host but not its containers.
+
 ### How the two halves talk
 
 Between the hub and a **Docker node**, over the LAN, in both directions, and with no
